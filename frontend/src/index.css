@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Base colors - Professional grays */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 5%;
+    
+    /* Card and surfaces */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 5%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 5%;
+    
+    /* Brand colors - Use sparingly (10% of UI) */
+    --primary: 300 100% 66%;        /* #fe54ff - Pink/Magenta */
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 260 100% 70%;      /* #a064ff - Purple */
+    --secondary-foreground: 0 0% 100%;
+    
+    --accent: 184 98% 68%;          /* #61f1fd - Cyan */
+    --accent-foreground: 0 0% 5%;
+    
+    /* Muted colors */
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    
+    /* Status colors */
+    --destructive: 355 100% 45%;    /* Red - Critical */
+    --destructive-foreground: 0 0% 100%;
+    
+    --warning: 33 100% 55%;         /* Orange - High */
+    --warning-foreground: 0 0% 100%;
+    
+    --success: 158 100% 41%;        /* Green - Success */
+    --success-foreground: 0 0% 100%;
+    
+    --info: 210 100% 50%;           /* Blue - Low */
+    --info-foreground: 0 0% 100%;
+    
+    /* Border and input */
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 300 100% 66%;
+    
+    --radius: 0.75rem;
+    
+    /* Sidebar - Dark theme */
+    --sidebar-background: 0 0% 6%;
+    --sidebar-foreground: 0 0% 93%;
+    --sidebar-primary: 300 100% 66%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 93%;
+    --sidebar-border: 0 0% 18%;
+    --sidebar-ring: 300 100% 66%;
+    
+    /* Pastel stat card backgrounds */
+    --stat-mint: 158 50% 94%;
+    --stat-mint-foreground: 158 100% 20%;
+    --stat-lavender: 260 50% 94%;
+    --stat-lavender-foreground: 260 80% 30%;
+    --stat-sky: 210 50% 94%;
+    --stat-sky-foreground: 210 100% 30%;
+    --stat-peach: 33 60% 94%;
+    --stat-peach-foreground: 33 100% 30%;
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 93%;
+    
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 93%;
+    
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 93%;
+    
+    --primary: 300 100% 66%;
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 260 100% 70%;
+    --secondary-foreground: 0 0% 100%;
+    
+    --accent: 184 98% 68%;
+    --accent-foreground: 0 0% 5%;
+    
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 60%;
+    
+    --destructive: 355 100% 45%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --warning: 33 100% 55%;
+    --warning-foreground: 0 0% 100%;
+    
+    --success: 158 100% 41%;
+    --success-foreground: 0 0% 100%;
+    
+    --info: 210 100% 50%;
+    --info-foreground: 0 0% 100%;
+    
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 300 100% 66%;
+    
+    --sidebar-background: 0 0% 6%;
+    --sidebar-foreground: 0 0% 93%;
+    --sidebar-primary: 300 100% 66%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 93%;
+    --sidebar-border: 0 0% 18%;
+    --sidebar-ring: 300 100% 66%;
+    
+    /* Pastel stat card backgrounds - darker versions for dark mode */
+    --stat-mint: 158 30% 16%;
+    --stat-mint-foreground: 158 50% 80%;
+    --stat-lavender: 260 30% 16%;
+    --stat-lavender-foreground: 260 50% 80%;
+    --stat-sky: 210 30% 16%;
+    --stat-sky-foreground: 210 50% 80%;
+    --stat-peach: 33 30% 16%;
+    --stat-peach-foreground: 33 50% 80%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-geist;
+  }
+  
+  code, pre {
+    @apply font-mono;
+  }
+}
+
+@layer components {
+  .code-block {
+    @apply bg-muted/50 border border-border rounded-lg p-4 font-mono text-sm overflow-x-auto;
+  }
+  
+  .pulse-dot {
+    @apply relative;
+  }
+  
+  .pulse-dot::before {
+    content: '';
+    @apply absolute inset-0 rounded-full bg-current animate-ping opacity-75;
+  }
+}
