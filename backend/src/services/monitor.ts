@@ -13,20 +13,29 @@ const somniaTestnet = defineChain({
   network: 'somnia-testnet',
   nativeCurrency: { decimals: 18, name: 'STT', symbol: 'STT' },
   rpcUrls: {
-    default: { http: [process.env.SOMNIA_RPC_URL || 'https://dream-rpc.somnia.network'] },
-    public: { http: [process.env.SOMNIA_RPC_URL || 'https://dream-rpc.somnia.network'] }
+    default: { 
+      http: [process.env.SOMNIA_RPC_URL || 'https://dream-rpc.somnia.network'],
+      webSocket: [process.env.SOMNIA_WS_URL || 'wss://dream-rpc.somnia.network/ws']
+    },
+    public: { 
+      http: [process.env.SOMNIA_RPC_URL || 'https://dream-rpc.somnia.network'],
+      webSocket: [process.env.SOMNIA_WS_URL || 'wss://dream-rpc.somnia.network/ws']
+    }
   }
 });
 
 class SDSMonitor {
   private sdk: SDK;
+  private publicClient: any; // Store public client
   private subscriptions: Map<string, { subscriptionId: string, unsubscribe: () => void }> = new Map();
 
   constructor() {
+    const wsUrl = process.env.SOMNIA_WS_URL || 'wss://dream-rpc.somnia.network/ws';
+    
     // Use WebSocket transport for subscriptions (required by SDS)
-    const publicClient = createPublicClient({
+    this.publicClient = createPublicClient({
       chain: somniaTestnet,
-      transport: webSocket(process.env.SOMNIA_WS_URL || 'wss://dream-rpc.somnia.network')
+      transport: webSocket(wsUrl)
     });
 
     // Only create wallet client if private key is available
@@ -41,7 +50,7 @@ class SDSMonitor {
     }
 
     this.sdk = new SDK({
-      public: publicClient,
+      public: this.publicClient,
       wallet: walletClient
     });
   }
@@ -55,10 +64,11 @@ class SDSMonitor {
 
     try {
       // Subscribe to ALL events from this contract
-      // Using eventContractSource to monitor any contract on Somnia
+      // Using eventContractSources (plural) to monitor any contract on Somnia
       const subscription = await this.sdk.streams.subscribe({
         somniaStreamsEventId: undefined, // null for custom event source
-        eventContractSource: contractAddress as `0x${string}`, // The contract to monitor
+        // @ts-ignore - The type definition might be slightly off or version mismatch, trying plural based on linter
+        eventContractSources: [contractAddress as `0x${string}`], 
         topicOverrides: [], // Empty = subscribe to ALL events from this contract
         ethCalls: [], // No additional calls needed
         onData: async (data: any) => {
@@ -70,9 +80,13 @@ class SDSMonitor {
         onlyPushChanges: false
       });
 
-      if (subscription) {
+      if (subscription && !(subscription instanceof Error)) {
         this.subscriptions.set(contractAddress, subscription);
         console.log(`✅ SDS subscription active for ${contractAddress}`);
+      } else if (subscription instanceof Error) {
+        console.error(`❌ Failed to subscribe: ${subscription.message}`);
+      } else {
+        console.error(`❌ Failed to subscribe: Unknown error (subscription is ${subscription})`);
       }
 
       // Update contract status
@@ -115,8 +129,8 @@ class SDSMonitor {
       }
 
       // Fetch full transaction details using viem
-      const tx = await this.sdk.public.getTransaction({ hash: txHash });
-      const receipt = await this.sdk.public.getTransactionReceipt({ hash: txHash });
+      const tx = await this.publicClient.getTransaction({ hash: txHash });
+      const receipt = await this.publicClient.getTransactionReceipt({ hash: txHash });
 
       const transaction = {
         hash: txHash,
