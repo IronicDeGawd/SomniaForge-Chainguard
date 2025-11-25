@@ -13,7 +13,8 @@ model Contract {
   id            String   @id @default(uuid())
   address       String   @unique
   name          String?
-  status        String   @default("healthy") // healthy, warning, critical
+  network       String   @default("testnet") // 'testnet' or 'mainnet'
+  status        String   @default("pending") // pending, healthy, warning, critical
   totalTxs      Int      @default(0)
   failedTxs     Int      @default(0)
   avgGas        Int      @default(0)
@@ -21,11 +22,24 @@ model Contract {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   
+  ownerId       String?
+  owner         User?    @relation(fields: [ownerId], references: [id])
+  
   alerts        Alert[]
   findings      Finding[]
   transactions  Transaction[]
   
   @@map("contracts")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  address       String   @unique
+  createdAt     DateTime @default(now())
+  
+  contracts     Contract[]
+  
+  @@map("users")
 }
 
 model Alert {

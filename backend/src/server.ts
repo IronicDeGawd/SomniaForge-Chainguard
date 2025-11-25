@@ -6,6 +6,7 @@ import { createServer } from 'http';
 import contractsRouter from './api/contracts.js';
 import alertsRouter from './api/alerts.js';
 import statsRouter from './api/stats.js';
+import transactionsRouter from './api/transactions.js';
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ app.use(express.json());
 app.use('/api/contracts', contractsRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/stats', statsRouter);
+app.use('/api/transactions', transactionsRouter);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -53,3 +55,4 @@ server.listen(PORT, () => {
 
 // Export io for use in other modules
 export { io };
+// Restart trigger v3

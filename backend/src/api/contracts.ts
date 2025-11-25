@@ -1,13 +1,27 @@
 import { Router } from 'express';
 import prisma from '../db/prisma.js';
 import { sdsMonitor } from '../services/monitor.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET /api/contracts - List all monitored contracts
-router.get('/', async (req, res) => {
+// GET /api/contracts - List all monitored contracts (Public + User's)
+router.get('/', authenticate, async (req, res) => {
   try {
+    const userId = req.user?.id;
+    
+    const where: any = {
+      OR: [
+        { ownerId: null }, // Public contracts
+      ]
+    };
+
+    if (userId) {
+      where.OR.push({ ownerId: userId }); // User's contracts
+    }
+
     const contracts = await prisma.contract.findMany({
+      where,
       include: {
         alerts: {
           where: { dismissed: false },
@@ -32,33 +46,39 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/contracts - Add contract to monitor
-router.post('/', async (req, res) => {
+router.post('/', authenticate, async (req, res) => {
   try {
-    const { address, name } = req.body;
+    const { address, name, network = 'testnet' } = req.body;
+    const userId = req.user?.id;
     
     // Validate address format
     if (!address || !address.match(/^0x[a-fA-F0-9]{40}$/)) {
       return res.status(400).json({ error: 'Invalid Ethereum address format' });
     }
     
-    // Check if contract already exists
+    // Check if contract already exists (globally unique address for now)
+    // TODO: Allow same address for different users? For now, keep it unique per network/address
     const existing = await prisma.contract.findUnique({
       where: { address }
     });
     
     if (existing) {
+      // If it exists but has no owner, maybe claim it? Or just return error.
+      // For now, return error.
       return res.status(409).json({ error: 'Contract already being monitored' });
     }
     
     const contract = await prisma.contract.create({
       data: {
         address,
-        name: name || undefined
+        name: name || undefined,
+        network,
+        ownerId: userId // Assign to user if logged in
       }
     });
     
-    // Start monitoring this contract
-    await sdsMonitor.startMonitoring(address);
+    // Start monitoring this contract on the specific network
+    await sdsMonitor.startMonitoring(address, network);
     
     res.status(201).json(contract);
   } catch (error) {

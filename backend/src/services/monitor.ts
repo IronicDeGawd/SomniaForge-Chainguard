@@ -25,74 +25,106 @@ const somniaTestnet = defineChain({
 });
 
 class SDSMonitor {
-  private sdk: SDK;
-  private publicClient: any; // Store public client
-  private subscriptions: Map<string, { subscriptionId: string, unsubscribe: () => void }> = new Map();
+  private testnetSdk: SDK;
+  private mainnetSdk: SDK;
+  private testnetClient: any;
+  private mainnetClient: any;
+  
+  // Map<contractAddress, { subscription, network }>
+  private subscriptions: Map<string, { subscriptionId: string, unsubscribe: () => void, network: string }> = new Map();
 
   constructor() {
-    const wsUrl = process.env.SOMNIA_WS_URL || 'wss://dream-rpc.somnia.network/ws';
-    
-    // Use WebSocket transport for subscriptions (required by SDS)
-    this.publicClient = createPublicClient({
+    // --- Testnet Setup ---
+    const testnetWsUrl = process.env.SOMNIA_TESTNET_WS_URL || 'wss://dream-rpc.somnia.network/ws';
+    this.testnetClient = createPublicClient({
       chain: somniaTestnet,
-      transport: webSocket(wsUrl)
+      transport: webSocket(testnetWsUrl)
     });
 
-    // Only create wallet client if private key is available
-    let walletClient = undefined;
-    if (process.env.PRIVATE_KEY) {
-      const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
-      walletClient = createWalletClient({
-        chain: somniaTestnet,
-        account,
-        transport: http()
-      });
-    }
+    this.testnetSdk = new SDK({
+      public: this.testnetClient
+    });
 
-    this.sdk = new SDK({
-      public: this.publicClient,
-      wallet: walletClient
+    // --- Mainnet Setup ---
+    // Define Somnia Mainnet Chain
+    const somniaMainnet = {
+      id: 5031,
+      name: 'Somnia Mainnet',
+      network: 'somnia-mainnet',
+      nativeCurrency: { decimals: 18, name: 'STT', symbol: 'STT' },
+      rpcUrls: {
+        default: { 
+          http: [process.env.SOMNIA_MAINNET_RPC_URL || 'https://api.infra.mainnet.somnia.network'],
+          webSocket: [process.env.SOMNIA_MAINNET_WS_URL || 'wss://api.infra.mainnet.somnia.network/ws']
+        },
+        public: { 
+          http: [process.env.SOMNIA_MAINNET_RPC_URL || 'https://api.infra.mainnet.somnia.network'],
+          webSocket: [process.env.SOMNIA_MAINNET_WS_URL || 'wss://api.infra.mainnet.somnia.network/ws']
+        }
+      }
+    };
+
+    const mainnetWsUrl = process.env.SOMNIA_MAINNET_WS_URL || 'wss://api.infra.mainnet.somnia.network/ws';
+    this.mainnetClient = createPublicClient({
+      chain: somniaMainnet,
+      transport: webSocket(mainnetWsUrl)
+    });
+
+    this.mainnetSdk = new SDK({
+      public: this.mainnetClient
     });
   }
 
   /**
    * Start monitoring a contract using SDS subscription
-   * Subscribes to ALL events from the contract
+   * @param contractAddress The address to monitor
+   * @param network 'testnet' or 'mainnet' (default: 'testnet')
    */
-  async startMonitoring(contractAddress: string) {
-    console.log(`Starting SDS monitoring for contract: ${contractAddress}`);
+  async startMonitoring(contractAddress: string, network: string = 'testnet') {
+    console.log(`Starting SDS monitoring for ${contractAddress} on ${network}`);
 
     try {
+      const sdk = network === 'mainnet' ? this.mainnetSdk : this.testnetSdk;
+
       // Subscribe to ALL events from this contract
-      // Using eventContractSources (plural) to monitor any contract on Somnia
-      const subscription = await this.sdk.streams.subscribe({
-        somniaStreamsEventId: undefined, // null for custom event source
-        // @ts-ignore - The type definition might be slightly off or version mismatch, trying plural based on linter
+      const subscription = await sdk.streams.subscribe({
+        somniaStreamsEventId: undefined, 
+        // @ts-ignore
         eventContractSources: [contractAddress as `0x${string}`], 
-        topicOverrides: [], // Empty = subscribe to ALL events from this contract
-        ethCalls: [], // No additional calls needed
+        topicOverrides: [], 
+        ethCalls: [], 
         onData: async (data: any) => {
-          await this.handleContractEvent(data, contractAddress);
+          await this.handleContractEvent(data, contractAddress, network);
         },
         onError: (error: Error) => {
-          console.error(`SDS subscription error for ${contractAddress}:`, error);
+          console.error(`SDS subscription error for ${contractAddress} (${network}):`, error);
         },
         onlyPushChanges: false
       });
 
       if (subscription && !(subscription instanceof Error)) {
-        this.subscriptions.set(contractAddress, subscription);
-        console.log(`✅ SDS subscription active for ${contractAddress}`);
+        this.subscriptions.set(contractAddress, { ...subscription, network });
+        console.log(`✅ SDS subscription active for ${contractAddress} on ${network}`);
       } else if (subscription instanceof Error) {
         console.error(`❌ Failed to subscribe: ${subscription.message}`);
       } else {
-        console.error(`❌ Failed to subscribe: Unknown error (subscription is ${subscription})`);
+        console.error(`❌ Failed to subscribe: Unknown error`);
       }
 
-      // Update contract status
+      // Update contract status and backfill transaction count
+      const initialTxCount = await this.getInitialTransactionCount(contractAddress, network);
+      console.log(`🔢 Initial transaction count for ${contractAddress}: ${initialTxCount}`);
+
       await prisma.contract.update({
         where: { address: contractAddress },
-        data: { status: 'healthy' }
+        data: { 
+          status: 'healthy', 
+          network,
+          totalTxs: {
+            // Only set if current is 0 (to avoid overwriting if we restart monitoring)
+            increment: initialTxCount 
+          }
+        }
       });
     } catch (error) {
       console.error(`Error starting SDS monitoring for ${contractAddress}:`, error);
@@ -100,12 +132,50 @@ class SDSMonitor {
   }
 
   /**
+   * Get initial transaction count from Explorer API (preferred) or RPC (fallback)
+   */
+  private async getInitialTransactionCount(contractAddress: string, network: string): Promise<number> {
+    try {
+      // Try Explorer API first for total interactions (incoming + outgoing)
+      const explorerUrl = network === 'mainnet' 
+        ? 'https://explorer.somnia.network' 
+        : 'https://shannon-explorer.somnia.network';
+      
+      const response = await fetch(`${explorerUrl}/api?module=account&action=txlist&address=${contractAddress}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === '1' && Array.isArray(data.result)) {
+          console.log(`✅ Fetched ${data.result.length} txs from Explorer API`);
+          return data.result.length;
+        }
+      }
+      
+      console.warn('Explorer API failed or returned no data, falling back to RPC nonce');
+    } catch (error) {
+      console.error('Error fetching from Explorer API:', error);
+    }
+
+    // Fallback to RPC Nonce (only outgoing txs)
+    try {
+      const client = network === 'mainnet' ? this.mainnetClient : this.testnetClient;
+      const count = await client.getTransactionCount({
+        address: contractAddress as `0x${string}`
+      });
+      return count;
+    } catch (error) {
+      console.error(`Error fetching initial tx count for ${contractAddress}:`, error);
+      return 0;
+    }
+  }
+
+  /**
    * Stop monitoring a contract
    */
   async stopMonitoring(contractAddress: string) {
-    const subscription = this.subscriptions.get(contractAddress);
-    if (subscription) {
-      subscription.unsubscribe();
+    const sub = this.subscriptions.get(contractAddress);
+    if (sub) {
+      sub.unsubscribe();
       this.subscriptions.delete(contractAddress);
       console.log(`Stopped SDS monitoring for ${contractAddress}`);
     }
@@ -113,14 +183,11 @@ class SDSMonitor {
 
   /**
    * Handle contract event from SDS
-   * This is called for EVERY event emitted by the monitored contract
    */
-  private async handleContractEvent(data: any, contractAddress: string) {
+  private async handleContractEvent(data: any, contractAddress: string, network: string) {
     try {
-      console.log(`📡 Received event from ${contractAddress}:`, data);
+      console.log(`📡 Received event from ${contractAddress} (${network}):`, data);
 
-      // Extract transaction data from event
-      // The event data contains: topics, data, transactionHash, blockNumber, etc.
       const txHash = data.result?.transactionHash || data.transactionHash;
       
       if (!txHash) {
@@ -128,9 +195,11 @@ class SDSMonitor {
         return;
       }
 
-      // Fetch full transaction details using viem
-      const tx = await this.publicClient.getTransaction({ hash: txHash });
-      const receipt = await this.publicClient.getTransactionReceipt({ hash: txHash });
+      // Use correct client for fetching tx details
+      const client = network === 'mainnet' ? this.mainnetClient : this.testnetClient;
+
+      const tx = await client.getTransaction({ hash: txHash });
+      const receipt = await client.getTransactionReceipt({ hash: txHash });
 
       const transaction = {
         hash: txHash,
@@ -139,7 +208,8 @@ class SDSMonitor {
         value: tx.value.toString(),
         input: tx.input,
         gasUsed: Number(receipt.gasUsed),
-        status: receipt.status === 'success' ? 'success' : 'failed'
+        status: receipt.status === 'success' ? 'success' : 'failed',
+        network // Add network to transaction data
       };
 
       // Process through rule engine
