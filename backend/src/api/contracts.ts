@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import prisma from '../db/prisma.js';
-// import { sdsMonitor } from '../services/monitor.js';
+import { sdsMonitor } from '../services/monitor.js';
 
 const router = Router();
 
@@ -58,7 +58,7 @@ router.post('/', async (req, res) => {
     });
     
     // Start monitoring this contract
-    // await sdsMonitor.startMonitoring(address);
+    await sdsMonitor.startMonitoring(address);
     
     res.status(201).json(contract);
   } catch (error) {
@@ -73,7 +73,7 @@ router.delete('/:address', async (req, res) => {
     const { address } = req.params;
     
     // Stop monitoring
-    // await sdsMonitor.stopMonitoring(address);
+    await sdsMonitor.stopMonitoring(address);
     
     await prisma.contract.delete({
       where: { address }
