@@ -1,0 +1,97 @@
+// Prisma schema for ChainGuard backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Contract {
+  id            String   @id @default(uuid())
+  address       String   @unique
+  name          String?
+  status        String   @default("healthy") // healthy, warning, critical
+  totalTxs      Int      @default(0)
+  failedTxs     Int      @default(0)
+  avgGas        Int      @default(0)
+  lastActivity  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  alerts        Alert[]
+  findings      Finding[]
+  transactions  Transaction[]
+  
+  @@map("contracts")
+}
+
+model Alert {
+  id              String   @id @default(uuid())
+  severity        String   // CRITICAL, HIGH, MEDIUM, LOW, FALSE_POSITIVE
+  type            String   // REENTRANCY, ACCESS_CONTROL, UNCHECKED_CALL, GAS_ANOMALY, FLASH_LOAN
+  contractAddress String
+  contractName    String?
+  description     String
+  recommendation  String?
+  txHash          String?
+  dismissed       Boolean  @default(false)
+  
+  // LLM Validation
+  llmValid        Boolean?
+  llmConfidence   Int?     // 0-100
+  llmReason       String?
+  llmContext      String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  contract        Contract @relation(fields: [contractAddress], references: [address], onDelete: Cascade)
+  
+  @@index([contractAddress])
+  @@index([severity])
+  @@index([dismissed])
+  @@map("alerts")
+}
+
+model Finding {
+  id              String   @id @default(uuid())
+  contractAddress String
+  type            String
+  severity        String
+  line            Int?
+  functionName    String?
+  codeSnippet     String?
+  ruleConfidence  Float    // 0-1 from rule engine
+  validated       Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+  
+  contract        Contract @relation(fields: [contractAddress], references: [address], onDelete: Cascade)
+  
+  @@index([contractAddress])
+  @@index([validated])
+  @@map("findings")
+}
+
+model Transaction {
+  id              String   @id @default(uuid())
+  hash            String   @unique
+  from            String
+  to              String
+  value           String
+  gasUsed         Int
+  status          String   // success, failed
+  timestamp       DateTime
+  contractAddress String?
+  
+  createdAt       DateTime @default(now())
+  
+  contract        Contract? @relation(fields: [contractAddress], references: [address], onDelete: SetNull)
+  
+  @@index([contractAddress])
+  @@index([timestamp])
+  @@map("transactions")
+}

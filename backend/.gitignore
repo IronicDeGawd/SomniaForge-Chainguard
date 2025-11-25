@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+
+# Environment
+.env
+.env.local
+
+# Prisma
+prisma/migrations/
+
+# Logs
+*.log
+
+# Testing
+coverage/
+
+# IDE
+.vscode/
+.idea/
+
+/src/generated/prisma
