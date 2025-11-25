@@ -1,33 +1,62 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import Monitor from "./pages/Monitor";
 import Scanner from "./pages/Scanner";
 import Alerts from "./pages/Alerts";
 import NotFound from "./pages/NotFound";
-
-const queryClient = new QueryClient();
+import { Web3Provider } from "./components/Web3Provider";
+import { RequireAuth } from "./components/RequireAuth";
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
+  <Web3Provider>
     <TooltipProvider>
       <Toaster />
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Layout><Dashboard /></Layout>} />
-          <Route path="/monitor" element={<Layout><Monitor /></Layout>} />
-          <Route path="/scanner" element={<Layout><Scanner /></Layout>} />
-          <Route path="/alerts" element={<Layout><Alerts /></Layout>} />
+          <Route path="/" element={<Layout isLandingPage={true}><Index /></Layout>} />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireAuth>
+                <Layout><Dashboard /></Layout>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/monitor"
+            element={
+              <RequireAuth>
+                <Layout><Monitor /></Layout>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/scanner"
+            element={
+              <RequireAuth>
+                <Layout><Scanner /></Layout>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/alerts"
+            element={
+              <RequireAuth>
+                <Layout><Alerts /></Layout>
+              </RequireAuth>
+            }
+          />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
-  </QueryClientProvider>
+  </Web3Provider>
 );
 
 export default App;
