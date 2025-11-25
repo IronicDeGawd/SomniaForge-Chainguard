@@ -34,12 +34,14 @@ export interface Finding {
 export interface Contract {
   address: string;
   name?: string;
+  network?: string;
   status: ContractStatus;
   totalTxs: number;
   failedTxs: number;
   avgGas: number;
-  lastActivity: number;
-  findings: Finding[];
+  lastActivity: string;
+  findings?: Finding[];
+  alerts?: Alert[];
 }
 
 export interface NetworkExploit {
@@ -63,4 +65,18 @@ export interface GasDataPoint {
   timestamp: number;
   gas: number;
   anomaly?: boolean;
+}
+
+export interface WebSocketEvents {
+  transaction: (tx: Transaction) => void;
+  alert: (alert: Alert) => void;
+  connect: () => void;
+  disconnect: () => void;
+}
+
+export interface Stats {
+  totalContracts: number;
+  activeAlerts: number;
+  vulnerabilities24h: number;
+  gasAnomalies: number;
 }

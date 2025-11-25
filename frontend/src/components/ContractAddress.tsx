@@ -5,18 +5,27 @@ import { cn } from '@/lib/utils';
 
 interface ContractAddressProps {
   address: string;
+  network?: string; // 'testnet' | 'mainnet'
   showCopy?: boolean;
   showExplorer?: boolean;
   className?: string;
 }
 
-export const ContractAddress = ({ 
-  address, 
-  showCopy = true, 
+export const ContractAddress = ({
+  address,
+  network = 'testnet',
+  showCopy = true,
   showExplorer = false,
-  className 
+  className
 }: ContractAddressProps) => {
   const truncated = `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+  const getExplorerUrl = () => {
+    if (network === 'mainnet') {
+      return `https://explorer.somnia.network/address/${address}`;
+    }
+    return `https://shannon-explorer.somnia.network/address/${address}`;
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(address);
@@ -47,7 +56,7 @@ export const ContractAddress = ({
           asChild
         >
           <a
-            href={`https://explorer.somnia.network/address/${address}`}
+            href={getExplorerUrl()}
             target="_blank"
             rel="noopener noreferrer"
           >

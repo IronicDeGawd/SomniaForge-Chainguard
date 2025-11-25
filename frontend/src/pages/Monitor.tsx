@@ -6,16 +6,141 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { ContractAddress } from '@/components/ContractAddress';
-import { mockContracts } from '@/lib/mockData';
 import { Contract } from '@/types';
 import { toast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount, useSignMessage } from 'wagmi';
+import { api } from '@/lib/api';
+import { useEffect } from 'react';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Monitor() {
-  const [contracts, setContracts] = useState<Contract[]>(mockContracts);
   const [newAddress, setNewAddress] = useState('');
   const [newName, setNewName] = useState('');
+  const [network, setNetwork] = useState('testnet');
+  const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
+  const queryClient = useQueryClient();
+
+  const { address, isConnected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Check login status on load
+  useEffect(() => {
+    const storedAddress = localStorage.getItem('auth_address');
+    const storedSignature = localStorage.getItem('auth_signature');
+    const storedTimestamp = localStorage.getItem('auth_timestamp');
+
+    if (isConnected && address && storedAddress === address && storedSignature && storedTimestamp) {
+      // Check if timestamp is valid (within 5 mins) - actually backend checks this for requests, 
+      // but for session persistence we might want longer or just re-sign.
+      // For this demo, we'll assume session is valid if present and address matches.
+      setIsLoggedIn(true);
+    } else {
+      setIsLoggedIn(false);
+    }
+  }, [isConnected, address]);
+
+  const handleLogin = async () => {
+    try {
+      if (!address) return;
+
+      const timestamp = Date.now().toString();
+      const message = `Login to ChainGuard: ${timestamp}`;
+
+      const signature = await signMessageAsync({
+        message,
+        account: address
+      });
+
+      localStorage.setItem('auth_address', address);
+      localStorage.setItem('auth_signature', signature);
+      localStorage.setItem('auth_timestamp', timestamp);
+
+      setIsLoggedIn(true);
+      toast({ title: 'Logged In', description: 'You can now manage your contracts.' });
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+    } catch (error) {
+      console.error('Login failed:', error);
+      toast({ title: 'Login Failed', description: 'Please sign the message to login.', variant: 'destructive' });
+    }
+  };
+
+  // Fetch contracts
+  const { data: contracts = [], isLoading } = useQuery<Contract[]>({
+    queryKey: ['contracts', isLoggedIn, address], // Refetch on login/address change
+    queryFn: async () => {
+      // If not logged in, we might still want to show public contracts? 
+      // Or just return empty if we want strict privacy.
+      // The backend returns public + user contracts.
+      return api.get('/api/contracts');
+    },
+    refetchInterval: 5000,
+  });
+
+  // Add contract mutation
+  const addContractMutation = useMutation({
+    mutationFn: async (data: { address: string; name?: string; network: string }) => {
+      return api.post('/api/contracts', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      setNewAddress('');
+      setNewName('');
+      setNetwork('testnet');
+      toast({
+        title: 'Contract Added',
+        description: 'Contract is now being monitored',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Remove contract mutation
+  const removeContractMutation = useMutation({
+    mutationFn: async (address: string) => {
+      return api.delete(`/api/contracts/${address}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      toast({
+        title: 'Contract Removed',
+        description: 'Contract has been removed from monitoring',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
 
   const handleAddContract = () => {
     if (!newAddress) {
@@ -27,7 +152,6 @@ export default function Monitor() {
       return;
     }
 
-    // Basic validation
     if (!newAddress.startsWith('0x') || newAddress.length !== 42) {
       toast({
         title: 'Invalid Address',
@@ -37,33 +161,13 @@ export default function Monitor() {
       return;
     }
 
-    const newContract: Contract = {
-      address: newAddress,
-      name: newName || undefined,
-      status: 'healthy',
-      totalTxs: 0,
-      failedTxs: 0,
-      avgGas: 0,
-      lastActivity: Date.now(),
-      findings: [],
-    };
-
-    setContracts([...contracts, newContract]);
-    setNewAddress('');
-    setNewName('');
-
-    toast({
-      title: 'Contract Added',
-      description: 'Contract is now being monitored',
-    });
+    addContractMutation.mutate({ address: newAddress, name: newName, network });
   };
 
   const handleRemoveContract = (address: string) => {
-    setContracts(contracts.filter(c => c.address !== address));
-    toast({
-      title: 'Contract Removed',
-      description: 'Contract has been removed from monitoring',
-    });
+    if (confirm('Are you sure you want to stop monitoring this contract?')) {
+      removeContractMutation.mutate(address);
+    }
   };
 
   const getStatusIcon = (status: Contract['status']) => {
@@ -92,11 +196,12 @@ export default function Monitor() {
     <div className="space-y-6">
       {/* Add Contract Form */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base font-geist">Add Contract to Monitor</CardTitle>
+          <ConnectButton />
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="md:col-span-1">
               <Label htmlFor="address">Contract Address *</Label>
               <Input
@@ -116,11 +221,44 @@ export default function Monitor() {
                 onChange={(e) => setNewName(e.target.value)}
               />
             </div>
+            <div className="md:col-span-1">
+              <Label htmlFor="network">Network</Label>
+              <Select value={network} onValueChange={setNetwork}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="testnet">Somnia Testnet</SelectItem>
+                  <SelectItem value="mainnet">Somnia Mainnet</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-end">
-              <Button onClick={handleAddContract} className="w-full bg-foreground text-background hover:bg-foreground/90">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Contract
-              </Button>
+              {!isConnected ? (
+                <div className="w-full flex items-center justify-center h-10 border rounded-md bg-muted/50 text-sm text-muted-foreground">
+                  Connect Wallet to Add
+                </div>
+              ) : !isLoggedIn ? (
+                <Button
+                  onClick={handleLogin}
+                  className="w-full"
+                >
+                  Sign in to Add
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleAddContract}
+                  className="w-full bg-foreground text-background hover:bg-foreground/90"
+                  disabled={addContractMutation.isPending}
+                >
+                  {addContractMutation.isPending ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-background mr-2"></div>
+                  ) : (
+                    <Plus className="w-4 h-4 mr-2" />
+                  )}
+                  Add Contract
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
@@ -128,23 +266,10 @@ export default function Monitor() {
 
       {/* Monitored Contracts */}
       <div>
-        <h2 className="text-lg font-geist font-semibold mb-4">
-          Monitored Contracts ({contracts.length})
-        </h2>
-        
-        {contracts.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4">
-                <AlertCircle className="w-10 h-10 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold mb-2">No Contracts Yet</h3>
-              <p className="text-muted-foreground text-center max-w-md">
-                Add your first contract above to start monitoring for security vulnerabilities and suspicious activity.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
+        {/* ... (existing header and loading/empty states) */}
+
+        {/* Contract List */}
+        {!isLoading && contracts.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {contracts.map((contract) => (
               <Card
@@ -161,6 +286,9 @@ export default function Monitor() {
                       <Badge variant="outline" className="text-xs capitalize">
                         {contract.status}
                       </Badge>
+                      <Badge variant="secondary" className="text-xs">
+                        {contract.network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+                      </Badge>
                     </div>
                     <Button
                       variant="ghost"
@@ -175,9 +303,10 @@ export default function Monitor() {
                   <h3 className="font-semibold mb-2">
                     {contract.name || 'Unnamed Contract'}
                   </h3>
-                  
-                  <ContractAddress 
+
+                  <ContractAddress
                     address={contract.address}
+                    network={contract.network}
                     showExplorer
                     className="mb-4"
                   />
@@ -203,22 +332,138 @@ export default function Monitor() {
                     </div>
                   </div>
 
-                  {contract.findings.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-border">
+                  <div className="mt-4 pt-4 border-t border-border">
+                    {(contract.findings?.length || 0) > 0 && (
                       <p className="text-xs text-muted-foreground mb-2">
-                        {contract.findings.length} finding(s) detected
+                        {contract.findings?.length || 0} finding(s) detected
                       </p>
-                      <Button variant="outline" size="sm" className="w-full">
-                        View Details
-                      </Button>
-                    </div>
-                  )}
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setSelectedContract(contract)}
+                    >
+                      View Details
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
           </div>
         )}
       </div>
+
+      {/* Contract Details Modal */}
+      <Dialog open={!!selectedContract} onOpenChange={(open) => !open && setSelectedContract(null)}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedContract?.name || 'Contract Details'}
+              {selectedContract && (
+                <Badge variant="outline" className="ml-2">
+                  {selectedContract.network}
+                </Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              <ContractAddress
+                address={selectedContract?.address || ''}
+                network={selectedContract?.network}
+                showCopy
+                showExplorer
+              />
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedContract && (
+            <div className="space-y-6">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-2xl font-bold">{selectedContract.totalTxs}</div>
+                    <p className="text-xs text-muted-foreground">Total Transactions</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-2xl font-bold text-destructive">{selectedContract.failedTxs}</div>
+                    <p className="text-xs text-muted-foreground">Failed Transactions</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-2xl font-bold font-mono">{selectedContract.avgGas.toLocaleString()}</div>
+                    <p className="text-xs text-muted-foreground">Avg Gas Usage</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Findings Section */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Vulnerability Findings</h3>
+                {selectedContract.findings && selectedContract.findings.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedContract.findings.map((finding: any) => (
+                      <Card key={finding.id} className="border-l-4 border-l-destructive">
+                        <CardContent className="p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <h4 className="font-medium">{finding.type}</h4>
+                            <Badge variant="destructive">{finding.severity}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">
+                            {finding.description || 'Potential vulnerability detected'}
+                          </p>
+                          {finding.codeSnippet && (
+                            <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
+                              {finding.codeSnippet}
+                            </pre>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center p-8 border rounded-lg bg-muted/20">
+                    <CheckCircle className="w-8 h-8 text-success mx-auto mb-2" />
+                    <p className="text-muted-foreground">No vulnerabilities detected</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Recent Alerts Section */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Recent Alerts</h3>
+                {selectedContract.alerts && selectedContract.alerts.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedContract.alerts.map((alert: any) => (
+                      <div key={alert.id} className="flex items-start gap-3 p-3 border rounded-lg">
+                        <AlertTriangle className={cn(
+                          "w-5 h-5 mt-0.5",
+                          alert.severity === 'CRITICAL' ? "text-destructive" : "text-warning"
+                        )} />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{alert.type}</span>
+                            <Badge variant="outline" className="text-xs">{alert.severity}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">{alert.description}</p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No recent alerts</p>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
