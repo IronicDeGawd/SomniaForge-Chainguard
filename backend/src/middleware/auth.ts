@@ -15,50 +15,51 @@ declare global {
   }
 }
 
+import jwt from 'jsonwebtoken';
+
+// CRITICAL: JWT_SECRET must be set in environment variables
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error(
+    'CRITICAL SECURITY ERROR: JWT_SECRET environment variable is not set. ' +
+    'Server cannot start without a secure JWT secret. ' +
+    'Please set JWT_SECRET in your .env file.'
+  );
+}
+
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const address = req.headers['x-wallet-address'] as string;
-    const signature = req.headers['x-auth-signature'] as string;
-    const timestamp = req.headers['x-auth-timestamp'] as string;
-
-    if (!address || !signature || !timestamp) {
-      // Allow public access for now (optional, or return 401)
-      // For this implementation, we'll make it optional but preferred
-      return next();
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader?.startsWith('Bearer ')) {
+      // Fallback to legacy signature check for backward compatibility during migration
+      // or just return 401 if we want to enforce JWT
+      // For now, let's enforce JWT for cleaner architecture
+      return res.status(401).json({ error: 'No token provided' });
     }
 
-    // Verify timestamp to prevent replay attacks (allow 5 min window)
-    const now = Date.now();
-    const ts = parseInt(timestamp);
-    if (Math.abs(now - ts) > 5 * 60 * 1000) {
-      return res.status(401).json({ error: 'Auth timestamp expired' });
-    }
+    const token = authHeader.split(' ')[1];
 
-    const message = `Login to ChainGuard: ${timestamp}`;
-
-    const valid = await verifyMessage({
-      address: address as `0x${string}`,
-      message,
-      signature: signature as `0x${string}`,
-    });
-
-    if (!valid) {
-      return res.status(401).json({ error: 'Invalid signature' });
-    }
-
-    // Find or create user
-    let user = await prisma.user.findUnique({
-      where: { address: address.toLowerCase() }
-    });
-
-    if (!user) {
-      user = await prisma.user.create({
-        data: { address: address.toLowerCase() }
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      // Verify user exists in DB (in case of DB reset or user deletion)
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id }
       });
-    }
 
-    req.user = user;
-    next();
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      req.user = {
+        id: user.id,
+        address: user.address
+      };
+      next();
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
   } catch (error) {
     console.error('Auth middleware error:', error);
     res.status(500).json({ error: 'Authentication failed' });
