@@ -33,31 +33,43 @@ const io = new Server(server, {
   }
 });
 
-// Setup Redis adapter if REDIS_URL is provided (for horizontal scaling)
-if (process.env.REDIS_URL) {
-  logger.info('Redis URL detected, attempting to setup Redis adapter for Socket.IO scaling...');
+// Setup Redis adapter if REDIS_URL or Upstash credentials are provided (for horizontal scaling)
+const redisUrl = process.env.REDIS_URL || 
+  (process.env.UPSTASH_REDIS_REST_URL ? `redis://:${process.env.UPSTASH_REDIS_REST_TOKEN}@${process.env.UPSTASH_REDIS_REST_URL.replace('https://', '')}` : null);
 
-  // Dynamically import Redis adapter (optional dependency)
-  import('@socket.io/redis-adapter')
-    .then(({ createAdapter }) => import('redis').then(({ createClient }) => {
-      const pubClient = createClient({ url: process.env.REDIS_URL });
-      const subClient = pubClient.duplicate();
-
-      Promise.all([pubClient.connect(), subClient.connect()])
-        .then(() => {
-          io.adapter(createAdapter(pubClient, subClient));
-          logger.info('✅ Redis adapter enabled - Socket.IO ready for horizontal scaling');
-        })
-        .catch((err) => {
-          logger.warn('⚠️  Redis connection failed, running in single-instance mode:', err.message);
-        });
-    }))
-    .catch((err) => {
-      logger.warn('⚠️  Redis adapter packages not installed, running in single-instance mode');
+if (redisUrl) {
+  logger.info('Redis configuration detected, attempting to setup Redis adapter for Socket.IO scaling...');
+  
+  // Use Promise-based dynamic imports to avoid TypeScript compilation errors
+  Promise.all([
+    import('@socket.io/redis-adapter').catch(() => null),
+    import('redis').catch(() => null)
+  ]).then(([adapterModule, redisModule]) => {
+    if (!adapterModule || !redisModule) {
+      logger.warn('⚠️  Redis packages not installed, running in single-instance mode');
       logger.info('To enable scaling: npm install @socket.io/redis-adapter redis');
-    });
+      return;
+    }
+    
+    const { createAdapter } = adapterModule;
+    const { createClient } = redisModule;
+    
+    const pubClient = createClient({ url: redisUrl });
+    const subClient = pubClient.duplicate();
+    
+    Promise.all([pubClient.connect(), subClient.connect()])
+      .then(() => {
+        io.adapter(createAdapter(pubClient, subClient));
+        logger.info('✅ Redis adapter enabled - Socket.IO ready for horizontal scaling');
+      })
+      .catch((err) => {
+        logger.warn('⚠️  Redis connection failed, running in single-instance mode:', err.message);
+      });
+  }).catch((err) => {
+    logger.warn('⚠️  Failed to load Redis modules:', err.message);
+  });
 } else {
-  logger.info('Running Socket.IO in single-instance mode (no Redis URL provided)');
+  logger.info('Running Socket.IO in single-instance mode (no Redis configured)');
 }
 
 // Inject IO into monitor service

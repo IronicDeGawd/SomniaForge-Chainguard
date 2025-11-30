@@ -48,5 +48,9 @@
     "tsx": "^4.19.2",
     "typescript": "^5.8.3",
     "vitest": "^2.1.8"
+  },
+  "optionalDependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "redis": "^5.10.0"
   }
 }
