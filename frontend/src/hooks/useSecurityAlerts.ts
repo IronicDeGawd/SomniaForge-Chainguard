@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { SDK, SchemaEncoder } from '@somnia-chain/streams';
 import { createPublicClient, http, webSocket, parseAbiParameters, decodeAbiParameters, getAddress, defineChain } from 'viem';
 
+import { logger } from '../utils/logger';
+
 const somniaTestnet = defineChain({
   id: 50312,
   name: 'Somnia Testnet',
@@ -43,8 +45,8 @@ export function useSecurityAlerts() {
   };
 
   useEffect(() => {
-    logger.info('[SDS] Initializing SecurityAlerts with POLLING...');
-    logger.debug('[SDS] Event ID:', securityAlertEventId);
+    logger.debug(' [SDS] Initializing SecurityAlerts with POLLING...');
+    logger.debug(' [SDS] Event ID:', securityAlertEventId);
 
     // Use HTTP client for polling (more reliable)
     const client = createPublicClient({
@@ -64,14 +66,14 @@ export function useSecurityAlerts() {
         // Compute schema ID
         const schemaId = await sdk.streams.computeSchemaId(securityAlertSchema);
         if (schemaId instanceof Error) {
-          console.error('❌ [SDS] Failed to compute schema ID:', schemaId.message);
+          logger.error(' [SDS] Failed to compute schema ID:', schemaId.message);
           return;
         }
 
         // Publisher address from backend
         const publisher = '0xe21c64a04562D53EA6AfFeB1c1561e49397B42dd' as `0x${string}`;
 
-        logger.debug('[SDS] Polling for alerts...');
+        logger.debug(' [SDS] Polling for alerts...');
 
         // Get all data for this publisher and schema
         const data = await sdk.streams.getAllPublisherDataForSchema(schemaId, publisher);
@@ -79,19 +81,19 @@ export function useSecurityAlerts() {
         if (data instanceof Error) {
           // NoData error is expected when no alerts exist yet
           if (data.message.includes('NoData')) {
-            console.log('📭 [SDS] No alerts published yet');
+            logger.debug(' [SDS] No alerts published yet');
           } else {
-            console.error('❌ [SDS] Polling error:', data.message);
+            logger.error(' [SDS] Polling error:', data.message);
           }
           return;
         }
 
         if (!data || (Array.isArray(data) && data.length === 0)) {
-          logger.debug('📭 [SDS] No alerts found');
+          logger.debug(' [SDS] No alerts found');
           return;
         }
 
-        logger.debug(`✅ [SDS] Found ${Array.isArray(data) ? data.length : 1} alert(s)`);
+        console.log(`✅ [SDS] Found ${Array.isArray(data) ? data.length : 1} alert(s)`);
 
         // Process alerts
         const alertsArray = Array.isArray(data) ? data : [data];
@@ -150,27 +152,26 @@ export function useSecurityAlerts() {
                 confidence: Number(getValue(dataObj.confidence))
               };
 
-              console.log('🎉 [SDS] New alert detected:', alert.alertType);
+              logger.info(' [SDS] New alert detected:', alert.alertType);
               setAlerts(prev => [alert, ...prev]);
             }
           } catch (error) {
-            logger.error('[SDS] Error processing alert:', error);
+            logger.error(' [SDS] Error processing alert:', error);
           }
         }
 
         if (newAlerts > 0) {
-          logger.info('[SDS] Added', newAlerts, 'new alert(s)');
-          setAlerts(prev => [...prev, ...alertsArray].slice(0, 100)); // Keep last 100
+          console.log(`✨ [SDS] Added ${newAlerts} new alert(s)`);
         } else {
-          logger.debug('[SDS] No new alerts (all previously seen)');
+          logger.debug(' [SDS] No new alerts (all previously seen)');
         }
 
         setIsConnected(true);
         setError(null);
 
-      } catch (err) {
-        logger.error('[SDS] Polling error:', err);
-        setError(err instanceof Error ? err.message : 'Unknown error');
+      } catch (error) {
+        logger.error(' [SDS] Polling error:', error);
+        setError(error instanceof Error ? error.message : 'Unknown error');
       }
     };
 
@@ -178,6 +179,19 @@ export function useSecurityAlerts() {
     pollForAlerts();
 
     // Poll every 10 seconds
+    pollInterval = setInterval(pollForAlerts, 10000);
+
+    logger.debug(' [SDS] Polling started (every 10 seconds)');
+
+    /*
+     * =========================================================================
+     * SUBSCRIPTION CODE - Currently commented out as subscriptions don't work
+     * =========================================================================
+     *
+     * Root cause: Backend was publishing with invalid event topics (addresses
+     * need to be padded to bytes32). Even after fixing this, the somnia_watch
+     * RPC subscription method doesn't trigger onData callbacks.
+     *
      * Keeping this code for future reference when SDS subscriptions are fixed.
      *
      * To re-enable: Uncomment the initSubscription() call below
@@ -194,14 +208,14 @@ export function useSecurityAlerts() {
         const schemaId = await wsSDK.streams.computeSchemaId(securityAlertSchema);
         if (schemaId instanceof Error) throw schemaId;
 
-        console.log('🔧 [SDS-SUB] Attempting subscription (experimental)...');
+        logger.debug(' [SDS-SUB] Attempting subscription (experimental)...');
 
         await wsSDK.streams.subscribe({
           somniaStreamsEventId: securityAlertEventId,
           ethCalls: [],
           onlyPushChanges: false,
           onData: async (data: any) => {
-            console.log('✅✅✅ [SDS-SUB] EVENT RECEIVED VIA SUBSCRIPTION ✅✅✅');
+            logger.debug('✅✅ [SDS-SUB] EVENT RECEIVED VIA SUBSCRIPTION ✅✅✅');
             console.log('📥 [SDS-SUB] Raw event data:', JSON.stringify(data, null, 2));
 
             try {
@@ -217,7 +231,7 @@ export function useSecurityAlerts() {
               const streamData = await wsSDK.streams.getByKey(schemaId, publisher, dataId);
 
               if (streamData instanceof Error) {
-                console.error('❌ [SDS-SUB] getByKey error:', streamData);
+                logger.error(' [SDS-SUB] getByKey error:', streamData);
                 return;
               }
 
@@ -225,17 +239,17 @@ export function useSecurityAlerts() {
               // ... (same decoding logic)
 
             } catch (error) {
-              console.error('❌ [SDS-SUB] Error processing event:', error);
+              logger.error(' [SDS-SUB] Error processing event:', error);
             }
           },
           onError: (error: any) => {
-            console.error('❌ [SDS-SUB] Subscription error:', error);
+            logger.error(' [SDS-SUB] Subscription error:', error);
           }
         });
 
-        console.log('✅ [SDS-SUB] Subscription established (as backup to polling)');
+        logger.debug(' [SDS-SUB] Subscription established (as backup to polling)');
       } catch (error) {
-        console.error('❌ [SDS-SUB] Subscription failed:', error);
+        logger.error(' [SDS-SUB] Subscription failed:', error);
       }
     };
 

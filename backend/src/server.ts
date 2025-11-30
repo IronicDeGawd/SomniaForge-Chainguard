@@ -79,7 +79,15 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080'
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:8080',
+    'https://chainguard.somniaforge.com', // Production frontend
+    'http://localhost:8080', // Development
+    'http://127.0.0.1:8080'  // Local development
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 
