@@ -43,8 +43,8 @@ export function useSecurityAlerts() {
   };
 
   useEffect(() => {
-    console.log('🔧 [SDS] Initializing SecurityAlerts with POLLING...');
-    console.log('🔧 [SDS] Event ID:', securityAlertEventId);
+    logger.info('[SDS] Initializing SecurityAlerts with POLLING...');
+    logger.debug('[SDS] Event ID:', securityAlertEventId);
 
     // Use HTTP client for polling (more reliable)
     const client = createPublicClient({
@@ -71,7 +71,7 @@ export function useSecurityAlerts() {
         // Publisher address from backend
         const publisher = '0xe21c64a04562D53EA6AfFeB1c1561e49397B42dd' as `0x${string}`;
 
-        console.log('🔄 [SDS] Polling for alerts...');
+        logger.debug('[SDS] Polling for alerts...');
 
         // Get all data for this publisher and schema
         const data = await sdk.streams.getAllPublisherDataForSchema(schemaId, publisher);
@@ -87,11 +87,11 @@ export function useSecurityAlerts() {
         }
 
         if (!data || (Array.isArray(data) && data.length === 0)) {
-          console.log('📭 [SDS] No alerts found');
+          logger.debug('📭 [SDS] No alerts found');
           return;
         }
 
-        console.log(`✅ [SDS] Found ${Array.isArray(data) ? data.length : 1} alert(s)`);
+        logger.debug(`✅ [SDS] Found ${Array.isArray(data) ? data.length : 1} alert(s)`);
 
         // Process alerts
         const alertsArray = Array.isArray(data) ? data : [data];
@@ -154,22 +154,23 @@ export function useSecurityAlerts() {
               setAlerts(prev => [alert, ...prev]);
             }
           } catch (error) {
-            console.error('❌ [SDS] Error processing alert:', error);
+            logger.error('[SDS] Error processing alert:', error);
           }
         }
 
         if (newAlerts > 0) {
-          console.log(`✨ [SDS] Added ${newAlerts} new alert(s)`);
+          logger.info('[SDS] Added', newAlerts, 'new alert(s)');
+          setAlerts(prev => [...prev, ...alertsArray].slice(0, 100)); // Keep last 100
         } else {
-          console.log('📌 [SDS] No new alerts (all previously seen)');
+          logger.debug('[SDS] No new alerts (all previously seen)');
         }
 
         setIsConnected(true);
         setError(null);
 
-      } catch (error) {
-        console.error('❌ [SDS] Polling error:', error);
-        setError(error instanceof Error ? error.message : 'Unknown error');
+      } catch (err) {
+        logger.error('[SDS] Polling error:', err);
+        setError(err instanceof Error ? err.message : 'Unknown error');
       }
     };
 
@@ -177,19 +178,6 @@ export function useSecurityAlerts() {
     pollForAlerts();
 
     // Poll every 10 seconds
-    pollInterval = setInterval(pollForAlerts, 10000);
-
-    console.log('✅ [SDS] Polling started (every 10 seconds)');
-
-    /*
-     * =========================================================================
-     * SUBSCRIPTION CODE - Currently commented out as subscriptions don't work
-     * =========================================================================
-     *
-     * Root cause: Backend was publishing with invalid event topics (addresses
-     * need to be padded to bytes32). Even after fixing this, the somnia_watch
-     * RPC subscription method doesn't trigger onData callbacks.
-     *
      * Keeping this code for future reference when SDS subscriptions are fixed.
      *
      * To re-enable: Uncomment the initSubscription() call below

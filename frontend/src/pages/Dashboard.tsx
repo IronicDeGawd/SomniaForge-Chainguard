@@ -15,7 +15,8 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 import { api } from '@/lib/api';
 import { useEffect } from 'react';
-import { io } from 'socket.io-client';
+import { io, Socket } from 'socket.io-client';
+import { logger } from '@/utils/logger';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSecurityAlerts } from '@/hooks/useSecurityAlerts';
 import { parseContractText, ParsedContract } from '@/utils/contractParser';
@@ -69,11 +70,11 @@ export default function Dashboard() {
     const socket = io(API_URL);
 
     socket.on('connect', () => {
-      console.log('Dashboard socket connected:', socket.id);
+      logger.debug('Dashboard socket connected:', socket.id);
     });
 
     socket.on('contract_update', (updatedContract: Contract) => {
-      console.log('Received contract_update:', updatedContract);
+      logger.debug('Received contract_update:', updatedContract);
       queryClient.setQueryData(['contracts', isAuthenticated, address], (oldData: Contract[] | undefined) => {
         if (!oldData) return [updatedContract];
         return oldData.map(c => c.address === updatedContract.address ? updatedContract : c);
