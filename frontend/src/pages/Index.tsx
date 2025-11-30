@@ -36,7 +36,7 @@ export default function Index() {
 
         {/* Subheadline */}
         <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-          Real-time monitoring, AI-powered vulnerability detection, and instant alerts for your Somnia smart contracts.
+          Real-time behavioral attack detection. Monitor flash loans, bots, DDoS, spam, and governance attacks on Somnia with AI-powered validation.
         </p>
 
         {/* CTAs */}
@@ -88,7 +88,7 @@ export default function Index() {
             <div className="flex gap-2 animate-pulse">
               <span className="text-muted-foreground">[10:42:16]</span>
               <span className="text-primary">ANALYZING</span>
-              <span>Verifying reentrancy pattern...</span>
+              <span>Flash loan pattern detected (risk: 75/100)...</span>
             </div>
           </div>
         </div>
@@ -113,8 +113,8 @@ export default function Index() {
           />
           <FeatureCard
             icon={Zap}
-            title="AI Analysis"
-            description="Our ML models are trained on thousands of exploit vectors to detect zero-day vulnerabilities."
+            title="AI Validation"
+            description="LLM-powered analysis validates behavioral patterns against known attack signatures with confidence scoring."
             color="text-yellow-400"
             bg="bg-yellow-400/10"
           />

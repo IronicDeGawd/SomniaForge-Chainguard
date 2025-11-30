@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { SeverityBadge } from '@/components/SeverityBadge';
 import { ContractAddress } from '@/components/ContractAddress';
 import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime, getAlertTimestamp } from '@/utils/typeUtils';
 import {
   Select,
   SelectContent,
@@ -25,6 +26,10 @@ import { ChevronDown, ChevronRight, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSecurityAlerts } from '@/hooks/useSecurityAlerts';
+import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
+import { useEffect } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -34,25 +39,52 @@ export default function Alerts() {
   const [expandedAlert, setExpandedAlert] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
+  // SDS real-time subscription
+  const { alerts: sdsAlerts, isConnected: isSDSConnected, error: sdsError } = useSecurityAlerts();
+
+  const { isAuthenticated } = useAuth();
+
   // Fetch alerts
   const { data: alerts = [], isLoading } = useQuery<Alert[]>({
     queryKey: ['alerts'],
     queryFn: async () => {
-      const res = await fetch(`${API_URL}/api/alerts`);
-      if (!res.ok) throw new Error('Failed to fetch alerts');
-      return res.json();
+      const response = await api.get('/api/alerts');
+      // Handle paginated response
+      return response.data || response;
     },
     refetchInterval: 5000,
+    enabled: isAuthenticated,
   });
+
+  // Show toast notification when new SDS alerts arrive
+  useEffect(() => {
+    if (sdsAlerts.length > 0) {
+      const latestAlert = sdsAlerts[0];
+      toast({
+        title: '🚨 New Security Alert (via SDS)',
+        description: `${latestAlert.severity}: ${latestAlert.description}`,
+        variant: latestAlert.severity === 'CRITICAL' || latestAlert.severity === 'HIGH' ? 'destructive' : 'default',
+      });
+      // Refetch alerts to get the latest from the API
+      queryClient.invalidateQueries({ queryKey: ['alerts'] });
+    }
+  }, [sdsAlerts, queryClient]);
+
+  // Show error toast if SDS connection fails
+  useEffect(() => {
+    if (sdsError) {
+      toast({
+        title: 'SDS Connection Error',
+        description: sdsError,
+        variant: 'destructive',
+      });
+    }
+  }, [sdsError]);
 
   // Resolve alert mutation
   const resolveAlertMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`${API_URL}/api/alerts/${id}/resolve`, {
-        method: 'POST',
-      });
-      if (!res.ok) throw new Error('Failed to resolve alert');
-      return res.json();
+      return api.post(`/api/alerts/${id}/resolve`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
@@ -90,6 +122,19 @@ export default function Alerts() {
           <p className="text-muted-foreground mt-1">
             Manage and review all security alerts
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {isSDSConnected ? (
+            <Badge variant="outline" className="gap-1.5 bg-green-500/10 text-green-600 border-green-500/20">
+              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+              SDS Live
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="gap-1.5 bg-yellow-500/10 text-yellow-600 border-yellow-500/20">
+              <div className="h-2 w-2 rounded-full bg-yellow-500" />
+              Connecting...
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -207,7 +252,7 @@ export default function Alerts() {
                         {alert.description}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                        {formatDistanceToNow(alert.timestamp, { addSuffix: true })}
+                        {formatRelativeTime(getAlertTimestamp(alert))}
                       </TableCell>
                       <TableCell>
                         {alert.dismissed ? (
