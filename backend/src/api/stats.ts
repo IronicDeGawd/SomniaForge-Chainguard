@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import prisma from '../db/prisma.js';
 import { authenticate } from '../middleware/auth.js';
+import { statsCache } from '../utils/cache.js';
 
 const router = Router();
 
@@ -13,6 +14,13 @@ router.get('/', authenticate, async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    // Check cache first
+    const cacheKey = `stats:${userId}`;
+    const cached = statsCache.get(cacheKey);
+    
+    if (cached) {
+      return res.json(cached);
+    }
 
     const [
       totalContracts,
@@ -61,13 +69,18 @@ router.get('/', authenticate, async (req, res) => {
       }
     });
 
-    res.json({
+    const stats = {
       totalContracts,
       activeAlerts,
       vulnerabilities24h,
       gasAnomalies,
       totalTransactions: totalTransactions._sum.totalTxs || 0
-    });
+    };
+    
+    // Cache for 30 seconds
+    statsCache.set(cacheKey, stats);
+
+    res.json(stats);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch statistics' });
   }

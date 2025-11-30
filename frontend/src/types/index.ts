@@ -6,6 +6,7 @@ export type AlertType =
   | 'UNCHECKED_CALL' 
   | 'GAS_ANOMALY'
   | 'FLASH_LOAN'
+  | 'FLASH_LOAN_ATTACK'  // Backend behavioral heuristic type
   | 'PRICE_MANIPULATION'
   | 'MONITORING_FAILURE'
   | 'SPAM_ATTACK'
