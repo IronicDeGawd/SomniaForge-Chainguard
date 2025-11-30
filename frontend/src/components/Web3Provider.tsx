@@ -51,7 +51,7 @@ const somniaMainnet = defineChain({
 
 const config = getDefaultConfig({
     appName: 'ChainGuard',
-    projectId: 'YOUR_PROJECT_ID', // TODO: Get a project ID from WalletConnect
+    projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'YOUR_PROJECT_ID',
     chains: [somniaTestnet, somniaMainnet],
     ssr: false,
 });

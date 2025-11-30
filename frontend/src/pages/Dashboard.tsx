@@ -49,7 +49,7 @@ export default function Dashboard() {
 
   const { address, isConnected } = useAccount();
   const { isAuthenticated, login, isLoading: authLoading } = useAuth();
-  const { alerts: liveAlerts, isConnected: isSDSConnected } = useSecurityAlerts();
+  const { alerts: liveAlerts, isConnected: isSDSConnected, dismissAlert } = useSecurityAlerts();
   const [socketAlerts, setSocketAlerts] = useState<any[]>([]);
 
   // Fetch contracts
@@ -273,7 +273,7 @@ export default function Dashboard() {
           {allAlerts.length > 0 ? (
             <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
               {allAlerts.map((alert, i) => (
-                <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg text-sm hover:bg-muted transition-colors">
+                <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg text-sm hover:bg-muted transition-colors group">
                   <div className="flex items-center gap-3">
                     <Badge variant={alert.severity === 'CRITICAL' ? 'destructive' : 'default'} className={cn(alert.severity === 'HIGH' && "bg-orange-500 hover:bg-orange-600")}>
                       {alert.severity}
@@ -302,13 +302,24 @@ export default function Dashboard() {
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xs text-muted-foreground block">
-                      {formatRelativeTime(Number(alert.timestamp))}
-                    </span>
-                    <span className="text-xs font-mono text-muted-foreground">
-                      Conf: {alert.confidence}%
-                    </span>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <span className="text-xs text-muted-foreground block">
+                        {formatRelativeTime(Number(alert.timestamp))}
+                      </span>
+                      <span className="text-xs font-mono text-muted-foreground">
+                        Conf: {alert.confidence}%
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="w-6 h-6 opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
+                      onClick={() => dismissAlert(alert.txHash)}
+                      title="Dismiss alert"
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               ))}

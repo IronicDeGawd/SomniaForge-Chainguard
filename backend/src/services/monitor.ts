@@ -1,5 +1,5 @@
 import { SDK, SchemaEncoder } from '@somnia-chain/streams';
-import { createPublicClient, createWalletClient, http, webSocket, encodeAbiParameters, parseAbiParameters } from 'viem';
+import { createPublicClient, createWalletClient, http, webSocket, encodeAbiParameters, parseAbiParameters, pad } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { defineChain } from 'viem';
 import { randomBytes } from 'crypto';
@@ -694,14 +694,21 @@ class SDSMonitor {
 
       logger.debug(`SDS Payload (Finding): dataId=${dataId}, schemaId=${this.securityAlertSchemaId}`);
 
+      logger.info(`📤 [SDS] Publishing SecurityAlert to SDS...`);
+      logger.info(`📤 [SDS] Schema ID: ${this.securityAlertSchemaId}`);
+      logger.info(`📤 [SDS] Publisher: ${this.publisherAddress}`);
+      logger.info(`📤 [SDS] Data ID: ${dataId}`);
+      logger.info(`📤 [SDS] Contract: ${finding.contractAddress}`);
+      logger.info(`📤 [SDS] Topics: [${finding.contractAddress}, ${this.publisherAddress}]`);
+
       // Publish to SDS with event emission
-      await sdk.streams.setAndEmitEvents(
+      const sdsTxHash = await sdk.streams.setAndEmitEvents(
         [{ id: dataId, schemaId: this.securityAlertSchemaId as `0x${string}`, data: encodedData }],
         [{
           id: securityAlertEventId,
           argumentTopics: [
-            finding.contractAddress as `0x${string}`,  // indexed contractAddress
-            this.publisherAddress!         // indexed publisher
+            pad(finding.contractAddress as `0x${string}`, { size: 32 }),  // Pad address to bytes32
+            pad(this.publisherAddress!, { size: 32 })                      // Pad address to bytes32
           ],
           data: encodeAbiParameters(
             parseAbiParameters('bytes32 dataId'),
@@ -710,7 +717,15 @@ class SDSMonitor {
         }]
       );
 
+      if (sdsTxHash instanceof Error) {
+        logger.error(`❌ [SDS] Failed to publish finding:`, sdsTxHash.message);
+        throw sdsTxHash;
+      }
+
+      logger.info(`✅ [SDS] Transaction hash: ${sdsTxHash}`);
+
       logger.info(`📡 Published finding to SDS: ${finding.type} for ${finding.contractAddress}`);
+      logger.info(`📍 [SDS] Frontend should query: getByKey("${this.securityAlertSchemaId}", "${this.publisherAddress}", "${dataId}")`);
     } catch (error) {
       logger.error(`Error publishing finding to SDS:`, error);
     }
@@ -760,14 +775,21 @@ class SDSMonitor {
 
       logger.debug(`SDS Payload (RiskScore): dataId=${dataId}, schemaId=${this.riskScoreSchemaId}`);
 
+      logger.info(`📤 [RISK] Publishing RiskScore to SDS...`);
+      logger.info(`📤 [RISK] Schema ID: ${this.riskScoreSchemaId}`);
+      logger.info(`📤 [RISK] Publisher: ${this.publisherAddress}`);
+      logger.info(`📤 [RISK] Data ID: ${dataId}`);
+      logger.info(`📤 [RISK] Contract: ${contractAddress}`);
+      logger.info(`📤 [RISK] Topics: [${contractAddress}, ${this.publisherAddress}]`);
+
       // Publish to SDS
-      await sdk.streams.setAndEmitEvents(
+      const sdsTxHash = await sdk.streams.setAndEmitEvents(
         [{ id: dataId, schemaId: this.riskScoreSchemaId as `0x${string}`, data: encodedData }],
         [{
           id: riskScoreEventId,
           argumentTopics: [
-            contractAddress as `0x${string}`,  // indexed: contract
-            this.publisherAddress!            // indexed: publisher
+            pad(contractAddress as `0x${string}`, { size: 32 }),  // Pad address to bytes32
+            pad(this.publisherAddress!, { size: 32 })               // Pad address to bytes32
           ],
           data: encodeAbiParameters(
             parseAbiParameters('bytes32 dataId'),
@@ -776,7 +798,15 @@ class SDSMonitor {
         }]
       );
 
+      if (sdsTxHash instanceof Error) {
+        logger.error(`❌ [RISK] Failed to publish risk score:`, sdsTxHash.message);
+        throw sdsTxHash;
+      }
+
+      logger.info(`✅ [RISK] Transaction hash: ${sdsTxHash}`);
+
       logger.info(`📊 Published risk score ${riskAnalysis.riskScore} (${riskAnalysis.riskLevel}) for tx ${tx.hash.slice(0, 10)}...`);
+      logger.info(`📍 [RISK] Frontend should query: getByKey("${this.riskScoreSchemaId}", "${this.publisherAddress}", "${dataId}")`);
     } catch (error) {
       logger.error(`Error publishing risk score to SDS:`, error);
     }
@@ -1221,20 +1251,17 @@ class SDSMonitor {
     if (this.isPaused) return;
 
     try {
-      // DEBUG LOGGING: Track event count per contract for first 10 events
+      // DEBUG LOGGING: Track event count per contract for first 10 events only
       const debugKey = `debug_${contractAddress}`;
-      if (!this.debugEventCounts.has(debugKey)) {
-        this.debugEventCounts.set(debugKey, 0);
-      }
-
-      const eventCount = this.debugEventCounts.get(debugKey) || 0;
-      this.debugEventCounts.set(debugKey, eventCount + 1);
-
-      // Log full event structure for first 10 events per contract
+      let eventCount = this.debugEventCounts.get(debugKey) || 0;
+      
+      // Only track and log first 10 events per contract to prevent memory leak
       if (eventCount < 10) {
+        this.debugEventCounts.set(debugKey, eventCount + 1);
         logger.info(`🔍 [DEBUG ${eventCount + 1}/10] SDS Event for ${contractAddress} (${network}):`);
         logger.info(JSON.stringify(data, null, 2));
       }
+
 
       // SDS event structure can vary, try multiple paths
       // 1. data.result.transactionHash (standard)

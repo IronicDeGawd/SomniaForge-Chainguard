@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { SDK, SchemaEncoder } from '@somnia-chain/streams';
-import { createPublicClient, webSocket, parseAbiParameters, decodeAbiParameters, getAddress, defineChain } from 'viem';
+import { createPublicClient, http, webSocket, parseAbiParameters, decodeAbiParameters, getAddress, defineChain } from 'viem';
 
 const somniaTestnet = defineChain({
   id: 50312,
@@ -37,103 +37,229 @@ export function useSecurityAlerts() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Function to dismiss/remove an alert
+  const dismissAlert = (txHash: string) => {
+    setAlerts(prev => prev.filter(alert => alert.txHash !== txHash));
+  };
+
   useEffect(() => {
+    console.log('🔧 [SDS] Initializing SecurityAlerts with POLLING...');
+    console.log('🔧 [SDS] Event ID:', securityAlertEventId);
+
+    // Use HTTP client for polling (more reliable)
     const client = createPublicClient({
       chain: somniaTestnet,
-      transport: webSocket('wss://dream-rpc.somnia.network/ws')
+      transport: http('https://dream-rpc.somnia.network')
     });
 
     const sdk = new SDK({ public: client as any });
     const schemaEncoder = new SchemaEncoder(securityAlertSchema);
 
+    // Track seen alerts to avoid duplicates
+    const seenAlertIds = new Set<string>();
+    let pollInterval: NodeJS.Timeout;
+
+    const pollForAlerts = async () => {
+      try {
+        // Compute schema ID
+        const schemaId = await sdk.streams.computeSchemaId(securityAlertSchema);
+        if (schemaId instanceof Error) {
+          console.error('❌ [SDS] Failed to compute schema ID:', schemaId.message);
+          return;
+        }
+
+        // Publisher address from backend
+        const publisher = '0xe21c64a04562D53EA6AfFeB1c1561e49397B42dd' as `0x${string}`;
+
+        console.log('🔄 [SDS] Polling for alerts...');
+
+        // Get all data for this publisher and schema
+        const data = await sdk.streams.getAllPublisherDataForSchema(schemaId, publisher);
+
+        if (data instanceof Error) {
+          // NoData error is expected when no alerts exist yet
+          if (data.message.includes('NoData')) {
+            console.log('📭 [SDS] No alerts published yet');
+          } else {
+            console.error('❌ [SDS] Polling error:', data.message);
+          }
+          return;
+        }
+
+        if (!data || (Array.isArray(data) && data.length === 0)) {
+          console.log('📭 [SDS] No alerts found');
+          return;
+        }
+
+        console.log(`✅ [SDS] Found ${Array.isArray(data) ? data.length : 1} alert(s)`);
+
+        // Process alerts
+        const alertsArray = Array.isArray(data) ? data : [data];
+        let newAlerts = 0;
+
+        for (const item of alertsArray) {
+          try {
+            // Decode the data
+            let decoded;
+            if (typeof item === 'string') {
+              decoded = schemaEncoder.decodeData(item as `0x${string}`);
+            } else if (Array.isArray(item)) {
+              decoded = item;
+            } else {
+              console.warn('⚠️ [SDS] Unknown data format:', typeof item);
+              continue;
+            }
+
+            // Extract alert data - handle both decoded objects and raw values
+            const dataObj: any = {};
+            for (const field of decoded) {
+              // If field has name/value structure, extract value; otherwise use as-is
+              if (field && typeof field === 'object' && 'name' in field && 'value' in field) {
+                dataObj[field.name] = field.value;
+              } else if (field && typeof field === 'object' && 'name' in field) {
+                dataObj[field.name] = field;
+              }
+            }
+
+            // Ensure all values are primitive types (strings, numbers, etc.)
+            const getValue = (val: any): any => {
+              if (val && typeof val === 'object' && 'value' in val) {
+                return val.value;
+              }
+              return val;
+            };
+
+            // Create unique ID from contract + txHash
+            const contractAddress = String(getValue(dataObj.contractAddress));
+            const txHash = String(getValue(dataObj.txHash));
+            const uniqueId = `${contractAddress}_${txHash}`;
+
+            if (!seenAlertIds.has(uniqueId)) {
+              seenAlertIds.add(uniqueId);
+              newAlerts++;
+
+              const alert: SecurityAlert = {
+                timestamp: Number(getValue(dataObj.timestamp)),
+                contractAddress: contractAddress,
+                txHash: txHash,
+                alertType: String(getValue(dataObj.alertType)),
+                severity: String(getValue(dataObj.severity)),
+                description: String(getValue(dataObj.description)),
+                value: String(getValue(dataObj.value) ?? '0'),
+                gasUsed: String(getValue(dataObj.gasUsed) ?? '0'),
+                confidence: Number(getValue(dataObj.confidence))
+              };
+
+              console.log('🎉 [SDS] New alert detected:', alert.alertType);
+              setAlerts(prev => [alert, ...prev]);
+            }
+          } catch (error) {
+            console.error('❌ [SDS] Error processing alert:', error);
+          }
+        }
+
+        if (newAlerts > 0) {
+          console.log(`✨ [SDS] Added ${newAlerts} new alert(s)`);
+        } else {
+          console.log('📌 [SDS] No new alerts (all previously seen)');
+        }
+
+        setIsConnected(true);
+        setError(null);
+
+      } catch (error) {
+        console.error('❌ [SDS] Polling error:', error);
+        setError(error instanceof Error ? error.message : 'Unknown error');
+      }
+    };
+
+    // Initial poll
+    pollForAlerts();
+
+    // Poll every 10 seconds
+    pollInterval = setInterval(pollForAlerts, 10000);
+
+    console.log('✅ [SDS] Polling started (every 10 seconds)');
+
+    /*
+     * =========================================================================
+     * SUBSCRIPTION CODE - Currently commented out as subscriptions don't work
+     * =========================================================================
+     *
+     * Root cause: Backend was publishing with invalid event topics (addresses
+     * need to be padded to bytes32). Even after fixing this, the somnia_watch
+     * RPC subscription method doesn't trigger onData callbacks.
+     *
+     * Keeping this code for future reference when SDS subscriptions are fixed.
+     *
+     * To re-enable: Uncomment the initSubscription() call below
+     * =========================================================================
+     *
     const initSubscription = async () => {
       try {
-        // Compute schema ID for decoding
-        const schemaId = await sdk.streams.computeSchemaId(securityAlertSchema);
+        const wsClient = createPublicClient({
+          chain: somniaTestnet,
+          transport: webSocket('wss://dream-rpc.somnia.network/ws')
+        });
+
+        const wsSDK = new SDK({ public: wsClient as any });
+        const schemaId = await wsSDK.streams.computeSchemaId(securityAlertSchema);
         if (schemaId instanceof Error) throw schemaId;
 
-        console.log('Subscribing to SDS events with ID:', securityAlertEventId);
+        console.log('🔧 [SDS-SUB] Attempting subscription (experimental)...');
 
-        await sdk.streams.subscribe({
+        await wsSDK.streams.subscribe({
           somniaStreamsEventId: securityAlertEventId,
           ethCalls: [],
           onlyPushChanges: false,
           onData: async (data: any) => {
-            console.log('Received SDS event:', data);
+            console.log('✅✅✅ [SDS-SUB] EVENT RECEIVED VIA SUBSCRIPTION ✅✅✅');
+            console.log('📥 [SDS-SUB] Raw event data:', JSON.stringify(data, null, 2));
+
             try {
-              // Extract dataId from event data
               const eventData = data.result.data;
-              const decodedEvent = decodeAbiParameters(
+              const topics = data.result.topics;
+
+              const [dataId] = decodeAbiParameters(
                 parseAbiParameters('bytes32 dataId'),
                 eventData
               );
-              const dataId = decodedEvent[0];
 
-              // Extract publisher from topics (Topic 2)
-              // Topic 0: Event Sig, Topic 1: contractAddress, Topic 2: publisher
-              const topics = data.result.topics;
-              if (!topics || topics.length < 3) {
-                console.warn('Received event with insufficient topics');
-                return;
-              }
               const publisher = getAddress('0x' + topics[2].slice(26));
+              const streamData = await wsSDK.streams.getByKey(schemaId, publisher, dataId);
 
-              console.log(`Fetching alert data for ID ${dataId} from publisher ${publisher}`);
-
-              // Fetch the data stream
-              const streamData = await sdk.streams.getByKey(schemaId, publisher, dataId);
-              
               if (streamData instanceof Error) {
-                console.error('Error fetching stream data:', streamData);
+                console.error('❌ [SDS-SUB] getByKey error:', streamData);
                 return;
               }
 
-              // streamData is Hex[] | SchemaDecodedItem[][]
-              // For getByKey, it returns the data items.
-              // We expect one item usually? Or a list?
-              // The return type is Hex[] (raw) or SchemaDecodedItem[][] (decoded).
-              // Since we passed schemaId (and it's public), it should be decoded?
-              // Actually, getByKey returns `Hex[] | SchemaDecodedItem[][]`.
-              // If it's decoded, it's `SchemaDecodedItem[][]`.
-              // Each item in the outer array is a row?
-              
-              if (Array.isArray(streamData) && streamData.length > 0) {
-                // Assuming the first item is our data
-                const item = streamData[0];
-                
-                // If it's already decoded (SchemaDecodedItem[])
-                if (Array.isArray(item) && typeof item[0] === 'object' && 'name' in item[0]) {
-                   const decodedItem = item as any[]; // SchemaDecodedItem[]
-                   
-                   const alert: SecurityAlert = {
-                     timestamp: Number(decodedItem.find((p: any) => p.name === 'timestamp')?.value ?? 0),
-                     contractAddress: decodedItem.find((p: any) => p.name === 'contractAddress')?.value as string,
-                     txHash: decodedItem.find((p: any) => p.name === 'txHash')?.value as string,
-                     alertType: decodedItem.find((p: any) => p.name === 'alertType')?.value as string,
-                     severity: decodedItem.find((p: any) => p.name === 'severity')?.value as string,
-                     description: decodedItem.find((p: any) => p.name === 'description')?.value as string,
-                     value: decodedItem.find((p: any) => p.name === 'value')?.value?.toString() ?? '0',
-                     gasUsed: decodedItem.find((p: any) => p.name === 'gasUsed')?.value?.toString() ?? '0',
-                     confidence: Number(decodedItem.find((p: any) => p.name === 'confidence')?.value ?? 0)
-                   };
+              // Process streamData similar to polling logic above
+              // ... (same decoding logic)
 
-                   setAlerts(prev => [alert, ...prev]);
-                }
-              }
-            } catch (e) {
-              console.error('Error processing alert:', e);
+            } catch (error) {
+              console.error('❌ [SDS-SUB] Error processing event:', error);
             }
+          },
+          onError: (error: any) => {
+            console.error('❌ [SDS-SUB] Subscription error:', error);
           }
         });
-        setIsConnected(true);
-      } catch (err) {
-        console.error('Failed to subscribe to alerts:', err);
-        setError(err instanceof Error ? err.message : 'Unknown error');
+
+        console.log('✅ [SDS-SUB] Subscription established (as backup to polling)');
+      } catch (error) {
+        console.error('❌ [SDS-SUB] Subscription failed:', error);
       }
     };
 
-    initSubscription();
+    // Uncomment to enable subscription as backup:
+    // initSubscription();
+    */
+
+    return () => {
+      console.log('🔌 [SDS] Cleaning up polling...');
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, []);
 
-  return { alerts, isConnected, error };
+  return { alerts, isConnected, error, dismissAlert };
 }
