@@ -199,9 +199,49 @@ function RiskFeed() {
 Create a `.env` file in the root directory:
 
 ```env
+# Development
 VITE_API_URL=http://localhost:3000
 VITE_WS_URL=http://localhost:3000
+VITE_WALLETCONNECT_PROJECT_ID=c610a77921343a8d39d801edc4c601b9
+VITE_LOG_LEVEL=debug
+
+# Production (.env.production)
+VITE_API_URL=https://rest.somniaforge.com
+VITE_WS_URL=https://rest.somniaforge.com
+VITE_WALLETCONNECT_PROJECT_ID=c610a77921343a8d39d801edc4c601b9
+VITE_LOG_LEVEL=warn  # Suppress debug logs in production
 ```
+
+## Production Deployment
+
+### Build for Production
+
+```bash
+npm run build
+```
+
+This creates an optimized build in the `dist/` directory with:
+- Code splitting (vendor + wagmi chunks)
+- Minification and tree-shaking
+- Source maps disabled for production
+
+### Preview Production Build
+
+```bash
+npm run preview
+```
+
+Starts a preview server on port 3001 (configured for PM2 deployment).
+
+### EC2 Deployment
+
+The frontend runs on AWS EC2 with:
+- **Port**: 3001 (localhost only, proxied via Caddy)
+- **Process Manager**: PM2 with vite preview
+- **Domain**: chainguard.somniaforge.com
+- **Reverse Proxy**: Caddy (HTTPS, gzip, CORS)
+
+See [`../deployment/README.md`](../deployment/README.md) for complete deployment guide.
 
 ## Available Scripts
 

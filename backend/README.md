@@ -187,6 +187,34 @@ npm run test:webhook:list
 npm run test:webhook:single 0
 ```
 
+## Production Deployment
+
+### EC2 Deployment (PM2 + Caddy)
+
+The backend runs on AWS EC2 with:
+- **Port**: 8081 (localhost only, proxied via Caddy)
+- **Process Manager**: PM2 in cluster mode
+- **Domain**: rest.somniaforge.com
+- **Database**: PostgreSQL (Neon.tech)
+- **Redis**: Upstash (for Socket.IO horizontal scaling)
+
+### Environment Variables
+
+Production `.env` configuration:
+```bash
+NODE_ENV=production
+PORT=8081
+DATABASE_URL='postgresql://...'  # Neon.tech
+REDIS_URL='rediss://...'          # Upstash
+JWT_SECRET='...'                  # Generated secret
+FRONTEND_URL='https://chainguard.somniaforge.com'
+LLM_WEBHOOK_URL='https://n8n.ironyaditya.xyz/webhook/...'
+```
+
+### Deployment Steps
+
+See [`../deployment/README.md`](../deployment/README.md) for complete deployment guide.
+
 ## License
 
 MIT

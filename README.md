@@ -614,6 +614,43 @@ Contributions welcome! Please:
 
 MIT
 
+## 🚀 Deployment
+
+### Production (EC2)
+
+ChainGuard is deployed on AWS EC2 with Caddy reverse proxy and PM2 process management:
+
+- **Frontend**: https://chainguard.somniaforge.com
+- **Backend API**: https://rest.somniaforge.com
+- **Process Manager**: PM2 (cluster mode with auto-restart)
+- **Reverse Proxy**: Caddy (HTTPS, CORS, gzip)
+
+For detailed deployment instructions, see [`deployment/README.md`](./deployment/README.md)
+
+### Testing Against Production
+
+You can run the test environment from **localhost** to test the **EC2 production server**:
+
+1. Update `test-environment/.env`:
+   ```bash
+   API_URL="https://rest.somniaforge.com"
+   ```
+
+2. Run test environment:
+   ```bash
+   cd test-environment
+   npm install
+   npm start
+   ```
+
+3. The test environment will:
+   - Deploy test contracts to Somnia blockchain
+   - Trigger the EC2 backend to monitor them
+   - Generate attack scenarios
+   - You can view alerts at https://chainguard.somniaforge.com
+
+**Note**: The test environment only needs to run locally - it interacts with the blockchain (Somnia) and your production backend via API calls.
+
 ---
 
 **Built with:**
