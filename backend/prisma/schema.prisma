@@ -14,21 +14,39 @@ model Contract {
   address       String   @unique
   name          String?
   network       String   @default("testnet") // 'testnet' or 'mainnet'
-  status        String   @default("pending") // pending, healthy, warning, critical
+  status        String   @default("pending") // pending, healthy, warning, critical, error
+  statusMessage String?  // Details about current status
   totalTxs      Int      @default(0)
   failedTxs     Int      @default(0)
   avgGas        Int      @default(0)
   lastActivity  DateTime @default(now())
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  
+
+  // Track last processed block to prevent double-counting on restart
+  lastProcessedBlock BigInt?  @default(0)
+  lastProcessedTxHash String?
+
+  // Baseline metrics for adaptive anomaly detection (7-day rolling average)
+  baselineGas          Int       @default(0)
+  baselineGasStdDev    Int       @default(0)
+  baselineTxFrequency  Float     @default(0)  // Transactions per day
+  baselineValue        String    @default("0")
+  baselineValueStdDev  String    @default("0")
+  baselineLastUpdated  DateTime?
+
   ownerId       String?
   owner         User?    @relation(fields: [ownerId], references: [id])
-  
+
   alerts        Alert[]
   findings      Finding[]
   transactions  Transaction[]
-  
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([network])
+  @@index([lastActivity])
+  @@index([baselineLastUpdated])  // For baseline update jobs
   @@map("contracts")
 }
 
@@ -52,21 +70,24 @@ model Alert {
   recommendation  String?
   txHash          String?
   dismissed       Boolean  @default(false)
-  
+
   // LLM Validation
   llmValid        Boolean?
   llmConfidence   Int?     // 0-100
   llmReason       String?
   llmContext      String?
-  
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  
+
   contract        Contract @relation(fields: [contractAddress], references: [address], onDelete: Cascade)
-  
-  @@index([contractAddress])
-  @@index([severity])
-  @@index([dismissed])
+
+  // Optimized indexes for performance
+  @@index([contractAddress, createdAt])  // Composite for contract alerts timeline
+  @@index([severity, dismissed])         // Composite for active alerts by severity
+  @@index([type])                        // For alert type filtering
+  @@index([dismissed])                   // For active/dismissed filtering
+  @@index([createdAt])                   // For recent alerts
   @@map("alerts")
 }
 
@@ -79,14 +100,19 @@ model Finding {
   functionName    String?
   codeSnippet     String?
   ruleConfidence  Float    // 0-1 from rule engine
+  description     String?
   validated       Boolean  @default(false)
-  
+
   createdAt       DateTime @default(now())
-  
+
   contract        Contract @relation(fields: [contractAddress], references: [address], onDelete: Cascade)
-  
-  @@index([contractAddress])
-  @@index([validated])
+
+  // Optimized indexes for performance
+  @@index([contractAddress, validated])  // Composite for unvalidated findings
+  @@index([type])                        // For finding type analysis
+  @@index([severity])                    // For severity filtering
+  @@index([validated])                   // For validation queue
+  @@index([createdAt])                   // For recent findings
   @@map("findings")
 }
 
@@ -100,12 +126,57 @@ model Transaction {
   status          String   // success, failed
   timestamp       DateTime
   contractAddress String?
-  
+  blockNumber     BigInt?  // Add block number for tracking
+
   createdAt       DateTime @default(now())
-  
+
   contract        Contract? @relation(fields: [contractAddress], references: [address], onDelete: SetNull)
-  
-  @@index([contractAddress])
-  @@index([timestamp])
+
+  // Optimized indexes for performance
+  @@index([contractAddress, timestamp])  // Composite for contract timeline queries
+  @@index([from])                        // For sender analysis
+  @@index([to])                          // For recipient analysis
+  @@index([status])                      // For failed tx queries
+  @@index([timestamp])                   // For time-based queries
+  @@index([gasUsed])                     // For gas anomaly detection
+  @@index([blockNumber])                 // For block-based queries
   @@map("transactions")
+}
+
+model FailedMonitor {
+  id              String   @id @default(uuid())
+  contractAddress String
+  network         String
+  reason          String
+  attempts        Int
+  lastAttempt     DateTime
+  resolved        Boolean  @default(false)
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([contractAddress])
+  @@index([resolved])
+  @@index([createdAt])
+  @@map("failed_monitors")
+}
+
+model FunctionGasProfile {
+  id                String   @id @default(uuid())
+  contractAddress   String
+  functionSelector  String   // 0x12345678
+  functionName      String?  // transfer, swap, etc.
+
+  avgGas            Int
+  minGas            Int
+  maxGas            Int
+  stdDevGas         Float    @default(0)
+  callCount         Int
+
+  createdAt         DateTime @default(now())
+  lastUpdated       DateTime @default(now())
+
+  @@unique([contractAddress, functionSelector])
+  @@index([contractAddress])
+  @@index([lastUpdated])
+  @@map("function_gas_profiles")
 }

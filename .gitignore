@@ -65,3 +65,6 @@ prisma/.env
 
 # Build artifacts
 *.tgz
+
+knowledge-base-backup/
+test-environment/
