@@ -1,14 +1,33 @@
 # ChainGuard Frontend
 
-Real-time smart contract security monitoring dashboard powered by Somnia Data Streams.
+Real-time blockchain security dashboard for behavioral attack pattern detection.
 
 ## Features
 
-- **Real-time Monitoring**: Live transaction monitoring via Somnia Data Streams
-- **AI-Powered Validation**: LLM-based vulnerability validation with confidence scores
-- **Security Alerts**: Instant notifications for critical vulnerabilities
-- **Network Scanner**: Detect exploits across the entire network
-- **Contract Management**: Add and monitor multiple smart contracts
+**Real-Time Data Streaming:**
+- **Dual SDS Subscriptions**:
+  - `useSecurityAlerts()` - Detailed security findings (9 fields)
+  - `useRiskScores()` - Live risk metrics (9 fields)
+- **Push-based Updates**: Zero-latency alerts via Somnia Data Streams WebSocket
+- **Contract Filtering**: Subscribe to specific contracts or all monitored contracts
+- **Automatic Reconnection**: Resilient SDS connections with error handling
+
+**Security Intelligence:**
+- **8 Attack Types**: Flash loan, bot, DDoS, spam, governance, high-value, failed high-gas, suspicious patterns
+- **Composite Risk Scores**: 0-100 scores with risk levels (SAFE, LOW, MEDIUM, HIGH, CRITICAL)
+- **Primary Factors**: Identify main risk contributors for each transaction
+- **AI Validation**: LLM confidence ratings and reasoning for findings
+
+**Dashboard & Monitoring:**
+- **Contract Management**: Add/remove contracts to monitor
+- **Alert Management**: Filter by severity, type, contract; resolve/dismiss alerts
+- **Real-Time Stats**: Total alerts, breakdown by type, recent activity charts
+- **Transaction History**: View all processed transactions with risk scores
+
+**Authentication:**
+- **Wallet-Based Auth**: MetaMask/WalletConnect signature-based login
+- **JWT Tokens**: Secure session management
+- **Protected Routes**: Automatic redirect for unauthenticated users
 
 ## Tech Stack
 
@@ -56,13 +75,124 @@ npm run preview
 ## Project Structure
 
 ```
-src/
-├── components/     # Reusable UI components
-├── pages/          # Page components (Dashboard, Monitor, Scanner, Alerts)
-├── hooks/          # Custom React hooks
-├── lib/            # Utilities and helpers
-└── types/          # TypeScript type definitions
+frontend/
+├── src/
+│   ├── pages/          # Page components
+│   │   ├── Dashboard.tsx    # Stats overview and charts
+│   │   ├── Monitor.tsx      # Contract monitoring management
+│   │   ├── Alerts.tsx       # Alert list and filtering
+│   │   └── Index.tsx        # Landing page
+│   ├── components/     # Reusable UI components
+│   │   ├── Sidebar.tsx      # Navigation sidebar
+│   │   ├── AlertCard.tsx    # Alert display card
+│   │   └── RequireAuth.tsx  # Auth guard wrapper
+│   ├── hooks/          # Custom React hooks
+│   │   ├── useSecurityAlerts.ts  # SDS SecurityAlert subscription
+│   │   ├── useRiskScores.ts      # SDS RiskScore subscription
+│   │   └── useScannerData.ts     # Contract monitoring data
+│   ├── contexts/       # React context providers
+│   │   └── AuthContext.tsx       # Wallet authentication state
+│   ├── utils/          # Utility functions
+│   │   └── formatters.ts         # Date, number, address formatters
+│   ├── lib/            # Core libraries
+│   │   ├── api.ts              # Backend API client
+│   │   └── utils.ts            # Helper functions
+│   └── types/          # TypeScript type definitions
+│       └── index.ts            # Shared types
+└── public/             # Static assets
 ```
+
+## SDS Subscription Hooks
+
+ChainGuard provides two custom React hooks for subscribing to real-time data from Somnia Data Streams:
+
+### useSecurityAlerts()
+
+Subscribe to detailed security findings for all monitored contracts:
+
+```typescript
+import { useSecurityAlerts } from '@/hooks/useSecurityAlerts';
+
+function AlertsPage() {
+  const { alerts, isConnected, error } = useSecurityAlerts();
+
+  return (
+    <div>
+      <p>Connection: {isConnected ? '✅ Connected' : '❌ Disconnected'}</p>
+      {alerts.map(alert => (
+        <div key={alert.txHash}>
+          <h3>{alert.alertType}</h3>
+          <p>Severity: {alert.severity}</p>
+          <p>Confidence: {alert.confidence}%</p>
+          <p>{alert.description}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+**SecurityAlert Schema:**
+- `timestamp`: Event timestamp (uint64)
+- `contractAddress`: Monitored contract (address)
+- `txHash`: Transaction hash (bytes32)
+- `alertType`: Attack type (string)
+- `severity`: CRITICAL/HIGH/MEDIUM/LOW (string)
+- `description`: Detailed explanation (string)
+- `value`: Transaction value in wei (uint256)
+- `gasUsed`: Gas consumed (uint256)
+- `confidence`: Rule confidence 0-100 (uint8)
+
+### useRiskScores()
+
+Subscribe to live risk score metrics with optional filtering:
+
+```typescript
+import { useRiskScores } from '@/hooks/useRiskScores';
+
+function RiskFeed() {
+  const {
+    riskScores,
+    isConnected,
+    error,
+    getHighRiskScores,
+    getCriticalRiskScores,
+    getRiskScoresByContract
+  } = useRiskScores({
+    contractAddress: '0x123...',  // Optional: filter by contract
+    maxScores: 100                // Keep latest N scores (default: 100)
+  });
+
+  const criticalRisks = getCriticalRiskScores();  // risk >= 80
+  const highRisks = getHighRiskScores();          // risk >= 65
+
+  return (
+    <div>
+      <h2>Live Risk Feed</h2>
+      {riskScores.map(score => (
+        <div key={score.txHash}>
+          <p>Risk: {score.riskScore} ({score.riskLevel})</p>
+          <p>Primary Factor: {score.primaryFactor}</p>
+          <p>Sender: {score.sender}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+**RiskScore Schema:**
+- `timestamp`: Event timestamp (uint64)
+- `contractAddress`: Monitored contract (address)
+- `sender`: Transaction sender (address)
+- `txHash`: Transaction hash (bytes32)
+- `riskScore`: Composite score 0-100 (uint8)
+- `riskLevel`: SAFE/LOW/MEDIUM/HIGH/CRITICAL (string)
+- `primaryFactor`: Main risk contributor (string)
+- `value`: Transaction value in wei (uint256)
+- `gasUsed`: Gas consumed (uint256)
+
+**Note:** RiskScore only publishes for transactions with risk >= 30 (MEDIUM or higher) to reduce data volume.
 
 ## Environment Variables
 
