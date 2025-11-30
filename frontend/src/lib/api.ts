@@ -1,15 +1,30 @@
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
+/**
+ * Handle API response and trigger logout on 401
+ */
+async function handleResponse(res: Response) {
+  // Check for 401 Unauthorized
+  if (res.status === 401) {
+    // Trigger logout event that AuthContext listens to
+    window.dispatchEvent(new CustomEvent('auth:logout'));
+    throw new Error('Unauthorized - please login again');
+  }
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || `Request failed: ${res.statusText}`);
+  }
+
+  return res.json();
+}
+
 export const api = {
   get: async (endpoint: string) => {
     const headers = getAuthHeaders();
     const res = await fetch(`${API_URL}${endpoint}`, { headers });
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || `Request failed: ${res.statusText}`);
-    }
-    return res.json();
+    return handleResponse(res);
   },
 
   post: async (endpoint: string, data: any) => {
@@ -22,11 +37,7 @@ export const api = {
       headers,
       body: JSON.stringify(data),
     });
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || `Request failed: ${res.statusText}`);
-    }
-    return res.json();
+    return handleResponse(res);
   },
 
   delete: async (endpoint: string) => {
@@ -35,24 +46,16 @@ export const api = {
       method: 'DELETE',
       headers,
     });
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || `Request failed: ${res.statusText}`);
-    }
-    return res.json();
+    return handleResponse(res);
   }
 };
 
 function getAuthHeaders() {
-  const address = localStorage.getItem('auth_address');
-  const signature = localStorage.getItem('auth_signature');
-  const timestamp = localStorage.getItem('auth_timestamp');
+  const token = localStorage.getItem('auth_token');
 
-  if (address && signature && timestamp) {
+  if (token) {
     return {
-      'x-wallet-address': address,
-      'x-auth-signature': signature,
-      'x-auth-timestamp': timestamp,
+      'Authorization': `Bearer ${token}`
     };
   }
   return {};
