@@ -36,7 +36,7 @@ export const ContractAddress = ({
   };
 
   return (
-    <div className={cn('inline-flex items-center gap-1', className)}>
+    <span className={cn('inline-flex items-center gap-1', className)}>
       <code className="font-mono text-sm">{truncated}</code>
       {showCopy && (
         <Button
@@ -64,6 +64,6 @@ export const ContractAddress = ({
           </a>
         </Button>
       )}
-    </div>
+    </span>
   );
 };

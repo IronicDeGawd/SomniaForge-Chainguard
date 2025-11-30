@@ -1,78 +1,23 @@
 
-import { useEffect, useState } from 'react';
-import { useAccount, useChainId, useSwitchChain, useSignMessage } from 'wagmi';
+import { useAccount, useChainId, useSwitchChain } from 'wagmi';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, Wallet, Lock } from 'lucide-react';
+import { AlertTriangle, Lock } from 'lucide-react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
-    const { isConnected, address } = useAccount();
+    const { isConnected } = useAccount();
     const chainId = useChainId();
     const { switchChain } = useSwitchChain();
-    const { signMessageAsync } = useSignMessage();
-    const { toast } = useToast();
     const location = useLocation();
-
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [isChecking, setIsChecking] = useState(true);
+    const { isAuthenticated, login, isLoading } = useAuth();
 
     // Somnia Testnet ID
     const REQUIRED_CHAIN_ID = 50312;
 
-    useEffect(() => {
-        const checkAuth = () => {
-            const storedAddress = localStorage.getItem('auth_address');
-            const storedSignature = localStorage.getItem('auth_signature');
-
-            if (isConnected && address && storedAddress === address && storedSignature) {
-                setIsLoggedIn(true);
-            } else {
-                setIsLoggedIn(false);
-            }
-            setIsChecking(false);
-        };
-
-        checkAuth();
-    }, [isConnected, address]);
-
-    // Auto-logout on disconnect
-    useEffect(() => {
-        if (!isConnected) {
-            localStorage.removeItem('auth_address');
-            localStorage.removeItem('auth_signature');
-            localStorage.removeItem('auth_timestamp');
-            setIsLoggedIn(false);
-        }
-    }, [isConnected]);
-
-    const handleLogin = async () => {
-        try {
-            if (!address) return;
-
-            const timestamp = Date.now().toString();
-            const message = `Login to ChainGuard: ${timestamp}`;
-
-            const signature = await signMessageAsync({
-                message,
-                account: address
-            });
-
-            localStorage.setItem('auth_address', address);
-            localStorage.setItem('auth_signature', signature);
-            localStorage.setItem('auth_timestamp', timestamp);
-
-            setIsLoggedIn(true);
-            toast({ title: 'Logged In', description: 'Welcome back!' });
-        } catch (error) {
-            console.error('Login failed:', error);
-            toast({ title: 'Login Failed', description: 'Please sign the message to continue.', variant: 'destructive' });
-        }
-    };
-
-    if (isChecking) {
+    if (isLoading) {
         return <div className="flex items-center justify-center min-h-screen">Checking auth...</div>;
     }
 
@@ -108,8 +53,8 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
         );
     }
 
-    // 3. Check Signature (Login)
-    if (!isLoggedIn) {
+    // 3. Check Authentication
+    if (!isAuthenticated) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-background p-4">
                 <Card className="w-full max-w-md">
@@ -123,8 +68,8 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
                         <p className="text-muted-foreground">
                             Please sign a message to verify your wallet ownership and access your dashboard.
                         </p>
-                        <Button className="w-full" onClick={handleLogin}>
-                            Sign In with Wallet
+                        <Button className="w-full" onClick={login} disabled={isLoading}>
+                            {isLoading ? 'Signing in...' : 'Sign In with Wallet'}
                         </Button>
                         <div className="pt-4 border-t">
                             <p className="text-xs text-muted-foreground mb-2">Connected as:</p>

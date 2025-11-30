@@ -1,4 +1,4 @@
-import { Home, Search, Globe, AlertTriangle, Shield, Zap, Wallet } from 'lucide-react';
+import { Home, Search, AlertTriangle, Shield, Zap, Wallet } from 'lucide-react';
 import { NavLink } from './NavLink';
 import { cn } from '@/lib/utils';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -16,7 +16,7 @@ export const Sidebar = ({ isLandingPage }: SidebarProps) => {
     ...(isLandingPage ? [{ name: 'Home', href: '/', icon: Zap }] : []),
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Monitor', href: '/monitor', icon: Search },
-    { name: 'Scanner', href: '/scanner', icon: Globe },
+
     { name: 'Alerts', href: '/alerts', icon: AlertTriangle },
   ];
 

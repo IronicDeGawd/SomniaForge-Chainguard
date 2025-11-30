@@ -5,6 +5,7 @@ import { SeverityBadge } from './SeverityBadge';
 import { ContractAddress } from './ContractAddress';
 import { Eye, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime, getAlertTimestamp } from '@/utils/typeUtils';
 import { cn } from '@/lib/utils';
 
 interface AlertCardProps {
@@ -33,18 +34,20 @@ export const AlertCard = ({ alert, onDismiss, onViewDetails }: AlertCardProps) =
               <SeverityBadge severity={alert.severity} />
               <span className="text-sm font-medium">{alert.type.replace('_', ' ')}</span>
             </div>
-            
+
             <p className="text-sm text-foreground leading-relaxed">{alert.description}</p>
-            
+
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
               {alert.contractName && (
                 <span className="font-medium">{alert.contractName}</span>
               )}
               <ContractAddress address={alert.contractAddress} showCopy={false} />
-              <span>{formatDistanceToNow(alert.timestamp, { addSuffix: true })}</span>
+              <span>
+                {formatRelativeTime(getAlertTimestamp(alert))}
+              </span>
             </div>
           </div>
-          
+
           <div className="flex gap-1">
             {onViewDetails && (
               <Button
